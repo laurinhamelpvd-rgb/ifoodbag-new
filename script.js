@@ -3440,6 +3440,9 @@ function initAdmin() {
     const leadsBody = document.getElementById('leads-body');
     const leadsCount = document.getElementById('leads-count');
     const leadsSearch = document.getElementById('leads-search');
+    const leadsExportFilter = document.getElementById('leads-export-filter');
+    const leadsExport = document.getElementById('leads-export');
+    const leadsExportStatus = document.getElementById('leads-export-status');
     const leadsRefresh = document.getElementById('leads-refresh');
     const leadsMore = document.getElementById('leads-more');
     const leadsReconcile = document.getElementById('leads-reconcile');
@@ -3751,6 +3754,23 @@ function initAdmin() {
             ...options
         });
         return res;
+    };
+
+    const readDownloadFileName = (contentDisposition, fallbackName) => {
+        const raw = String(contentDisposition || '').trim();
+        if (!raw) return fallbackName;
+
+        const utf8Match = raw.match(/filename\*=UTF-8''([^;]+)/i);
+        if (utf8Match?.[1]) {
+            try {
+                return decodeURIComponent(utf8Match[1]);
+            } catch (_error) {
+                return utf8Match[1];
+            }
+        }
+
+        const fileNameMatch = raw.match(/filename="?([^\";]+)"?/i);
+        return fileNameMatch?.[1] || fallbackName;
     };
 
     const checkAuth = async () => {
@@ -4557,6 +4577,64 @@ function initAdmin() {
         loadLeads({ reset: true });
     };
 
+    const exportLeads = async () => {
+        if (!leadsExport) return;
+
+        const segment = String(leadsExportFilter?.value || 'all').trim() || 'all';
+        leadsExport.disabled = true;
+        if (leadsExportStatus) leadsExportStatus.textContent = 'Gerando planilha...';
+
+        try {
+            const url = new URL('/api/admin/leads/export', window.location.origin);
+            url.searchParams.set('segment', segment);
+
+            const res = await fetch(url.toString(), {
+                credentials: 'same-origin'
+            });
+
+            if (!res.ok) {
+                const detail = await res.json().catch(() => ({}));
+                throw new Error(detail?.error || 'Falha ao exportar leads.');
+            }
+
+            const blob = await res.blob();
+            const fallbackFileName = `leads-${segment}.xlsx`;
+            const fileName = readDownloadFileName(
+                res.headers.get('Content-Disposition'),
+                fallbackFileName
+            );
+            const exportCount = Number(res.headers.get('X-Export-Count') || 0);
+            const truncated = res.headers.get('X-Export-Truncated') === '1';
+            const objectUrl = URL.createObjectURL(blob);
+            const link = document.createElement('a');
+
+            link.href = objectUrl;
+            link.download = fileName;
+            document.body.appendChild(link);
+            link.click();
+            link.remove();
+            window.setTimeout(() => URL.revokeObjectURL(objectUrl), 1500);
+
+            if (leadsExportStatus) {
+                if (exportCount > 0) {
+                    leadsExportStatus.textContent = truncated
+                        ? `${exportCount} leads exportados. Limite maximo atingido.`
+                        : `${exportCount} leads exportados com sucesso.`;
+                } else {
+                    leadsExportStatus.textContent = 'Nenhum lead encontrado para este filtro.';
+                }
+            }
+            showToast('Planilha exportada com sucesso.', 'success');
+        } catch (error) {
+            if (leadsExportStatus) {
+                leadsExportStatus.textContent = error?.message || 'Falha ao exportar leads.';
+            }
+            showToast('Falha ao exportar leads.', 'error');
+        } finally {
+            leadsExport.disabled = false;
+        }
+    };
+
     const loadPageCounts = async () => {
         if (!pagesGrid) return;
         const res = await adminFetch('/api/admin/pages');
@@ -4704,6 +4782,7 @@ function initAdmin() {
     leadsRefresh?.addEventListener('click', () => loadLeads({ reset: true }));
     leadsMore?.addEventListener('click', () => loadLeads({ reset: false }));
     leadsSearch?.addEventListener('change', () => loadLeads({ reset: true }));
+    leadsExport?.addEventListener('click', exportLeads);
     overviewRangePreset?.addEventListener('change', async () => {
         const selected = String(overviewRangePreset.value || 'all');
         if (selected === 'custom') {

@@ -66,9 +66,18 @@
           </div>
           <div class="admin-toolbar">
             <input type="text" id="leads-search" placeholder="Buscar por nome, email, telefone ou CPF" />
+            <select id="leads-export-filter" class="admin-toolbar-select" aria-label="Filtro de exportacao de leads">
+              <option value="all">Exportar: todos os leads</option>
+              <option value="front_unpaid">Exportar: PIX do front gerado e nao pago</option>
+              <option value="upsell_iof_unpaid">Exportar: front pago + upsell-iof gerado e nao pago</option>
+              <option value="upsell_correios_unpaid">Exportar: front + upsell-iof pagos + upsell-correios gerado e nao pago</option>
+              <option value="upsell_final_unpaid">Exportar: front + upsell-iof + upsell-correios pagos + ultimo upsell gerado e nao pago</option>
+            </select>
+            <button id="leads-export" class="btn-secondary" type="button">Exportar Excel</button>
             <button id="leads-refresh" class="btn-secondary" type="button">Atualizar</button>
             <button id="leads-reconcile" class="btn-secondary" type="button">Reconciliar PIX</button>
-            <span id="leads-reconcile-status" class="admin-muted"></span>
+            <span id="leads-export-status" class="admin-muted admin-toolbar-status"></span>
+            <span id="leads-reconcile-status" class="admin-muted admin-toolbar-status"></span>
           </div>
           <div class="admin-table-wrap">
             <table class="admin-table">
@@ -99,7 +108,7 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="/script.js?v=8.7" defer></script>
+  <script src="/script.js?v=8.8" defer></script>
 </body>
 </html>
 

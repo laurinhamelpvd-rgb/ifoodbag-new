@@ -3750,6 +3750,20 @@ body[data-page='admin'][data-admin='leads'] .admin-topbar {
     font-size: 0.95rem;
 }
 
+.admin-toolbar select {
+    min-width: 320px;
+    border-radius: 12px;
+    border: 1px solid #ddd;
+    background: #fff;
+    padding: 10px 12px;
+    font-size: 0.95rem;
+    color: #1f2738;
+}
+
+.admin-toolbar-status {
+    flex: 1 1 100%;
+}
+
 .admin-table-wrap {
     width: 100%;
     overflow-x: auto;
@@ -4355,6 +4369,10 @@ body.modal-open {
     }
     .admin-range-toolbar {
         align-items: stretch;
+    }
+    .admin-toolbar select {
+        width: 100%;
+        min-width: 0;
     }
     .gateway-top-row {
         grid-template-columns: 1fr;

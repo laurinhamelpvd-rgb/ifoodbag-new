@@ -1,3 +1,4 @@
+const XLSX = require('xlsx');
 const { ensureAllowedRequest } = require('../../lib/request-guard');
 const { verifyAdminPassword, issueAdminCookie, verifyAdminCookie, requireAdmin } = require('../../lib/admin-auth');
 const { getSettings, saveSettings, defaultSettings } = require('../../lib/settings-store');
@@ -174,6 +175,134 @@ const FUNNEL_OVERVIEW_STAGES = [
         description: 'Terceira oferta de upsell'
     }
 ];
+const LEADS_SELECT_FIELDS = [
+    'session_id',
+    'name',
+    'cpf',
+    'email',
+    'phone',
+    'stage',
+    'last_event',
+    'cep',
+    'address_line',
+    'number',
+    'complement',
+    'neighborhood',
+    'city',
+    'state',
+    'reference',
+    'shipping_id',
+    'shipping_name',
+    'shipping_price',
+    'bump_selected',
+    'bump_price',
+    'pix_txid',
+    'pix_amount',
+    'utm_source',
+    'utm_medium',
+    'utm_campaign',
+    'utm_term',
+    'utm_content',
+    'gclid',
+    'fbclid',
+    'ttclid',
+    'referrer',
+    'landing_page',
+    'source_url',
+    'user_agent',
+    'client_ip',
+    'payload',
+    'updated_at',
+    'created_at'
+].join(',');
+const MAX_LEADS_EXPORT_ROWS = 200000;
+const LEAD_EXPORT_SEGMENTS = {
+    all: {
+        key: 'all',
+        label: 'Todos os leads',
+        sheetName: 'Todos os leads',
+        fileSlug: 'todos-os-leads'
+    },
+    front_unpaid: {
+        key: 'front_unpaid',
+        label: 'PIX do front gerado e nao pago',
+        sheetName: 'Front nao pago',
+        fileSlug: 'front-pix-nao-pago'
+    },
+    upsell_iof_unpaid: {
+        key: 'upsell_iof_unpaid',
+        label: 'Front pago + upsell IOF gerado e nao pago',
+        sheetName: 'Upsell IOF',
+        fileSlug: 'upsell-iof-nao-pago'
+    },
+    upsell_correios_unpaid: {
+        key: 'upsell_correios_unpaid',
+        label: 'Front + IOF pagos + upsell Correios gerado e nao pago',
+        sheetName: 'Upsell Correios',
+        fileSlug: 'upsell-correios-nao-pago'
+    },
+    upsell_final_unpaid: {
+        key: 'upsell_final_unpaid',
+        label: 'Front + IOF + Correios pagos + ultimo upsell gerado e nao pago',
+        sheetName: 'Upsell final',
+        fileSlug: 'upsell-final-nao-pago'
+    }
+};
+const LEAD_EXPORT_COLUMNS = [
+    { header: 'Sessao', width: 24 },
+    { header: 'Nome', width: 28 },
+    { header: 'Email', width: 30 },
+    { header: 'CPF', width: 16 },
+    { header: 'Telefone', width: 18 },
+    { header: 'CEP', width: 12 },
+    { header: 'Endereco', width: 32 },
+    { header: 'Numero', width: 12 },
+    { header: 'Complemento', width: 18 },
+    { header: 'Bairro', width: 20 },
+    { header: 'Cidade', width: 18 },
+    { header: 'Estado', width: 12 },
+    { header: 'Referencia', width: 20 },
+    { header: 'Etapa atual', width: 18 },
+    { header: 'Evento atual', width: 22 },
+    { header: 'Status do funil', width: 24 },
+    { header: 'Jornada atual', width: 22 },
+    { header: 'Bucket atual', width: 34 },
+    { header: 'Filtro exportado', width: 34 },
+    { header: 'PIX gerado', width: 12 },
+    { header: 'PIX pago', width: 12 },
+    { header: 'PIX estornado', width: 14 },
+    { header: 'Gateway', width: 16 },
+    { header: 'TXID atual', width: 34 },
+    { header: 'Status PIX atual', width: 22 },
+    { header: 'Valor total atual', width: 16 },
+    { header: 'Frete ID', width: 18 },
+    { header: 'Frete selecionado', width: 28 },
+    { header: 'Valor frete', width: 14 },
+    { header: 'Seguro Bag', width: 12 },
+    { header: 'Valor seguro', width: 14 },
+    { header: 'Upsell ativo', width: 12 },
+    { header: 'Upsell tipo', width: 24 },
+    { header: 'Upsell titulo', width: 28 },
+    { header: 'Upsell valor', width: 14 },
+    { header: 'TXID anterior', width: 34 },
+    { header: 'UTM Source', width: 18 },
+    { header: 'UTM Medium', width: 18 },
+    { header: 'UTM Campaign', width: 24 },
+    { header: 'UTM Term', width: 20 },
+    { header: 'UTM Content', width: 24 },
+    { header: 'FBCLID', width: 26 },
+    { header: 'GCLID', width: 26 },
+    { header: 'TTCLID', width: 26 },
+    { header: 'Referrer', width: 30 },
+    { header: 'Landing page', width: 30 },
+    { header: 'Source URL', width: 36 },
+    { header: 'IP cliente', width: 18 },
+    { header: 'User agent', width: 44 },
+    { header: 'Horario evento', width: 22 },
+    { header: 'Criado em', width: 22 },
+    { header: 'Atualizado em', width: 22 },
+    { header: 'Payload JSON', width: 64 }
+];
 
 function asObject(input) {
     if (!input) return {};
@@ -290,6 +419,26 @@ function isPaidFromStatus(status) {
         s.includes('aprovad') ||
         s.includes('completed') ||
         s.includes('confirm')
+    );
+}
+
+function isRefundedFromStatus(status) {
+    const s = normalizeStatusText(status);
+    if (!s) return false;
+    return s.includes('refund') || s.includes('estorno');
+}
+
+function isRefusedFromStatus(status) {
+    const s = normalizeStatusText(status);
+    if (!s) return false;
+    return (
+        s.includes('refus') ||
+        s.includes('recus') ||
+        s.includes('chargeback') ||
+        s.includes('cancel') ||
+        s.includes('expired') ||
+        s.includes('expir') ||
+        s.includes('failed')
     );
 }
 
@@ -750,6 +899,430 @@ function mapLeadReadable(row) {
     };
 }
 
+function resolveLeadCurrentPixTxid(row, payload) {
+    return String(
+        row?.pix_txid ||
+        payload?.pixTxid ||
+        payload?.pix?.idTransaction ||
+        payload?.pix?.idtransaction ||
+        payload?.pix?.txid ||
+        ''
+    ).trim();
+}
+
+function resolveLeadCurrentPixStatus(row, payload) {
+    return String(
+        payload?.pixStatus ||
+        payload?.pix?.status ||
+        payload?.status ||
+        payload?.status_transaction ||
+        payload?.situacao ||
+        row?.last_event ||
+        ''
+    ).trim();
+}
+
+function isLeadRefunded(row, payload) {
+    if (String(row?.last_event || '').toLowerCase().trim() === 'pix_refunded') return true;
+    if (toIsoDate(payload?.pixRefundedAt)) return true;
+    if (toIsoDate(payload?.refundedAt)) return true;
+    return (
+        isRefundedFromStatus(payload?.pixStatus) ||
+        isRefundedFromStatus(payload?.pix?.status) ||
+        isRefundedFromStatus(payload?.status) ||
+        isRefundedFromStatus(payload?.status_transaction) ||
+        isRefundedFromStatus(payload?.situacao)
+    );
+}
+
+function isLeadRefused(row, payload) {
+    if (String(row?.last_event || '').toLowerCase().trim() === 'pix_refused') return true;
+    if (toIsoDate(payload?.pixRefusedAt)) return true;
+    return (
+        isRefusedFromStatus(payload?.pixStatus) ||
+        isRefusedFromStatus(payload?.pix?.status) ||
+        isRefusedFromStatus(payload?.status) ||
+        isRefusedFromStatus(payload?.status_transaction) ||
+        isRefusedFromStatus(payload?.situacao)
+    );
+}
+
+function normalizeLeadJourneyToken(value = '') {
+    return String(value || '')
+        .toLowerCase()
+        .normalize('NFD')
+        .replace(/[\u0300-\u036f]/g, '')
+        .replace(/[^a-z0-9]+/g, '_')
+        .replace(/^_+|_+$/g, '');
+}
+
+function resolveLeadJourneyStep(row, payload) {
+    const sourceStage = normalizeLeadJourneyToken(payload?.sourceStage || '');
+    const rowStage = normalizeLeadJourneyToken(row?.stage || '');
+    const payloadStage = normalizeLeadJourneyToken(payload?.stage || '');
+    const page = normalizeLeadJourneyToken(payload?.page || '');
+    const shippingId = normalizeLeadJourneyToken(
+        row?.shipping_id ||
+        payload?.shipping?.id ||
+        payload?.shippingId ||
+        ''
+    );
+    const shippingName = normalizeLeadJourneyToken(
+        row?.shipping_name ||
+        payload?.shipping?.name ||
+        payload?.shippingName ||
+        ''
+    );
+    const upsellKind = normalizeLeadJourneyToken(payload?.upsell?.kind || '');
+    const upsellTitle = normalizeLeadJourneyToken(payload?.upsell?.title || '');
+    const targetAfterPaid = normalizeLeadJourneyToken(payload?.upsell?.targetAfterPaid || '');
+    const combined = [shippingId, shippingName, upsellKind, upsellTitle, targetAfterPaid].join('_');
+
+    if (
+        sourceStage === 'upsell_iof' ||
+        rowStage === 'upsell_iof' ||
+        payloadStage === 'upsell_iof' ||
+        page === 'upsell_iof' ||
+        combined.includes('iof')
+    ) {
+        return 'upsell_iof';
+    }
+
+    if (
+        sourceStage === 'upsell_correios' ||
+        rowStage === 'upsell_correios' ||
+        payloadStage === 'upsell_correios' ||
+        page === 'upsell_correios' ||
+        /correios|objeto_grande/.test(combined)
+    ) {
+        return 'upsell_correios';
+    }
+
+    if (
+        sourceStage === 'upsell' ||
+        rowStage === 'upsell' ||
+        payloadStage === 'upsell' ||
+        page === 'upsell' ||
+        shippingId === 'expresso_1dia' ||
+        /adiantamento|prioridade|expresso|frete_1dia/.test(combined)
+    ) {
+        return 'upsell_final';
+    }
+
+    return 'front';
+}
+
+function leadJourneyLabel(step) {
+    if (step === 'upsell_iof') return 'Upsell IOF';
+    if (step === 'upsell_correios') return 'Upsell Correios';
+    if (step === 'upsell_final') return 'Ultimo upsell';
+    return 'Front';
+}
+
+function resolveLeadExportBucket(row, payload) {
+    const step = resolveLeadJourneyStep(row, payload);
+    const stepLabel = leadJourneyLabel(step);
+    const hasPix = Boolean(resolveLeadCurrentPixTxid(row, payload));
+    const isPaid = isLeadPaid(row, payload);
+    const isRefunded = isLeadRefunded(row, payload);
+
+    if (!hasPix) {
+        return {
+            key: 'no_pix',
+            label: 'Sem PIX gerado',
+            step,
+            stepLabel,
+            hasPix,
+            isPaid,
+            isRefunded
+        };
+    }
+
+    if (isRefunded) {
+        return {
+            key: `${step}_refunded`,
+            label: `${stepLabel} estornado`,
+            step,
+            stepLabel,
+            hasPix,
+            isPaid,
+            isRefunded
+        };
+    }
+
+    if (isPaid) {
+        return {
+            key: `${step}_paid`,
+            label: `${stepLabel} pago`,
+            step,
+            stepLabel,
+            hasPix,
+            isPaid,
+            isRefunded
+        };
+    }
+
+    if (step === 'upsell_iof') {
+        return {
+            key: LEAD_EXPORT_SEGMENTS.upsell_iof_unpaid.key,
+            label: LEAD_EXPORT_SEGMENTS.upsell_iof_unpaid.label,
+            step,
+            stepLabel,
+            hasPix,
+            isPaid,
+            isRefunded
+        };
+    }
+
+    if (step === 'upsell_correios') {
+        return {
+            key: LEAD_EXPORT_SEGMENTS.upsell_correios_unpaid.key,
+            label: LEAD_EXPORT_SEGMENTS.upsell_correios_unpaid.label,
+            step,
+            stepLabel,
+            hasPix,
+            isPaid,
+            isRefunded
+        };
+    }
+
+    if (step === 'upsell_final') {
+        return {
+            key: LEAD_EXPORT_SEGMENTS.upsell_final_unpaid.key,
+            label: LEAD_EXPORT_SEGMENTS.upsell_final_unpaid.label,
+            step,
+            stepLabel,
+            hasPix,
+            isPaid,
+            isRefunded
+        };
+    }
+
+    return {
+        key: LEAD_EXPORT_SEGMENTS.front_unpaid.key,
+        label: LEAD_EXPORT_SEGMENTS.front_unpaid.label,
+        step,
+        stepLabel,
+        hasPix,
+        isPaid,
+        isRefunded
+    };
+}
+
+function resolveLeadExportSegment(segmentKey) {
+    return LEAD_EXPORT_SEGMENTS[segmentKey] || LEAD_EXPORT_SEGMENTS.all;
+}
+
+function leadMatchesExportSegment(row, payload, segmentKey) {
+    if (segmentKey === LEAD_EXPORT_SEGMENTS.all.key) return true;
+    return resolveLeadExportBucket(row, payload).key === segmentKey;
+}
+
+function applyLeadFiltersToUrl(url, { range = null, query = '', limit = 50, offset = 0, select = LEADS_SELECT_FIELDS } = {}) {
+    url.searchParams.set('select', select);
+    url.searchParams.set('order', 'updated_at.desc');
+    url.searchParams.set('limit', String(limit));
+    url.searchParams.set('offset', String(offset));
+
+    if (range?.fromIso) url.searchParams.append('updated_at', `gte.${range.fromIso}`);
+    if (range?.toIso) url.searchParams.append('updated_at', `lte.${range.toIso}`);
+
+    if (query) {
+        const ilike = `%${String(query).replace(/%/g, '')}%`;
+        url.searchParams.set(
+            'or',
+            `name.ilike.${ilike},email.ilike.${ilike},phone.ilike.${ilike},cpf.ilike.${ilike},utm_source.ilike.${ilike},utm_campaign.ilike.${ilike},utm_term.ilike.${ilike},utm_content.ilike.${ilike}`
+        );
+    }
+}
+
+async function fetchLeadsPage({ range = null, query = '', limit = 50, offset = 0, select = LEADS_SELECT_FIELDS } = {}) {
+    const url = new URL(`${SUPABASE_URL}/rest/v1/leads`);
+    applyLeadFiltersToUrl(url, { range, query, limit, offset, select });
+
+    const response = await fetchFn(url.toString(), {
+        headers: {
+            apikey: SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json'
+        }
+    });
+
+    if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        return { ok: false, detail, status: response.status, rows: [] };
+    }
+
+    const rows = await response.json().catch(() => []);
+    return {
+        ok: true,
+        status: response.status,
+        rows: Array.isArray(rows) ? rows : []
+    };
+}
+
+async function fetchAllLeadsForExport({ range = null, query = '', maxRows = MAX_LEADS_EXPORT_ROWS, pageSize = 1000 } = {}) {
+    const rows = [];
+    let offset = 0;
+    let truncated = false;
+
+    while (rows.length < maxRows) {
+        const take = Math.min(pageSize, maxRows - rows.length);
+        const page = await fetchLeadsPage({
+            range,
+            query,
+            limit: take,
+            offset,
+            select: LEADS_SELECT_FIELDS
+        });
+
+        if (!page.ok) {
+            return {
+                ok: false,
+                detail: page.detail,
+                status: page.status,
+                rows,
+                truncated
+            };
+        }
+
+        rows.push(...page.rows);
+        const nextOffset = offset + page.rows.length;
+        if (page.rows.length < take) {
+            break;
+        }
+
+        if (rows.length >= maxRows) {
+            const probe = await fetchLeadsPage({
+                range,
+                query,
+                limit: 1,
+                offset: nextOffset,
+                select: 'session_id'
+            });
+            truncated = probe.ok && probe.rows.length > 0;
+            break;
+        }
+
+        offset = nextOffset;
+    }
+
+    return { ok: true, rows, truncated };
+}
+
+function formatLeadExportDate(value) {
+    const iso = toIsoDate(value);
+    if (!iso) return '';
+
+    const date = new Date(iso);
+    if (Number.isNaN(date.getTime())) return '';
+
+    return date.toLocaleString('pt-BR', {
+        timeZone: 'America/Sao_Paulo'
+    });
+}
+
+function formatLeadExportBool(value) {
+    return value ? 'sim' : 'nao';
+}
+
+function safeLeadExportText(value, maxLen = 32000) {
+    const text = value === null || value === undefined ? '' : String(value);
+    if (!text) return '';
+    if (text.length <= maxLen) return text;
+    return `${text.slice(0, Math.max(0, maxLen - 3))}...`;
+}
+
+function buildLeadExportRow(row, segment) {
+    const payload = asObject(row?.payload);
+    const readable = mapLeadReadable(row);
+    const bucket = resolveLeadExportBucket(row, payload);
+    const currentTxid = resolveLeadCurrentPixTxid(row, payload);
+    const currentPixStatus = resolveLeadCurrentPixStatus(row, payload);
+    const previousTxid = String(payload?.upsell?.previousTxid || '').trim();
+    const address = [row?.address_line, row?.number, row?.neighborhood, row?.city, row?.state]
+        .filter(Boolean)
+        .join(', ');
+
+    return [
+        safeLeadExportText(row?.session_id || ''),
+        safeLeadExportText(row?.name || ''),
+        safeLeadExportText(row?.email || ''),
+        safeLeadExportText(row?.cpf || ''),
+        safeLeadExportText(row?.phone || ''),
+        safeLeadExportText(row?.cep || ''),
+        safeLeadExportText(address),
+        safeLeadExportText(row?.number || ''),
+        safeLeadExportText(row?.complement || ''),
+        safeLeadExportText(row?.neighborhood || ''),
+        safeLeadExportText(row?.city || ''),
+        safeLeadExportText(row?.state || ''),
+        safeLeadExportText(row?.reference || ''),
+        safeLeadExportText(row?.stage || ''),
+        safeLeadExportText(row?.last_event || ''),
+        safeLeadExportText(readable?.status_funil || ''),
+        safeLeadExportText(bucket.stepLabel),
+        safeLeadExportText(bucket.label),
+        safeLeadExportText(segment.label),
+        formatLeadExportBool(Boolean(currentTxid)),
+        formatLeadExportBool(isLeadPaid(row, payload)),
+        formatLeadExportBool(isLeadRefunded(row, payload)),
+        safeLeadExportText(readable?.gateway_label || ''),
+        safeLeadExportText(currentTxid),
+        safeLeadExportText(currentPixStatus),
+        Number.isFinite(Number(row?.pix_amount)) ? Number(row.pix_amount) : '',
+        safeLeadExportText(row?.shipping_id || ''),
+        safeLeadExportText(row?.shipping_name || ''),
+        Number.isFinite(Number(row?.shipping_price)) ? Number(row.shipping_price) : '',
+        formatLeadExportBool(row?.bump_selected === true),
+        Number.isFinite(Number(row?.bump_price)) ? Number(row.bump_price) : '',
+        formatLeadExportBool(payload?.upsell?.enabled === true || bucket.step !== 'front'),
+        safeLeadExportText(payload?.upsell?.kind || ''),
+        safeLeadExportText(payload?.upsell?.title || ''),
+        Number.isFinite(Number(payload?.upsell?.price)) ? Number(payload.upsell.price) : '',
+        safeLeadExportText(previousTxid),
+        safeLeadExportText(row?.utm_source || ''),
+        safeLeadExportText(row?.utm_medium || ''),
+        safeLeadExportText(row?.utm_campaign || ''),
+        safeLeadExportText(row?.utm_term || ''),
+        safeLeadExportText(row?.utm_content || ''),
+        safeLeadExportText(row?.fbclid || ''),
+        safeLeadExportText(row?.gclid || ''),
+        safeLeadExportText(row?.ttclid || ''),
+        safeLeadExportText(row?.referrer || ''),
+        safeLeadExportText(row?.landing_page || ''),
+        safeLeadExportText(row?.source_url || ''),
+        safeLeadExportText(row?.client_ip || ''),
+        safeLeadExportText(row?.user_agent || ''),
+        safeLeadExportText(formatLeadExportDate(readable?.event_time || row?.updated_at)),
+        safeLeadExportText(formatLeadExportDate(row?.created_at)),
+        safeLeadExportText(formatLeadExportDate(row?.updated_at)),
+        safeLeadExportText(JSON.stringify(payload))
+    ];
+}
+
+function buildLeadExportWorkbook(rows, segment) {
+    const header = LEAD_EXPORT_COLUMNS.map((column) => column.header);
+    const body = rows.map((row) => buildLeadExportRow(row, segment));
+    const worksheet = XLSX.utils.aoa_to_sheet([header, ...body]);
+    worksheet['!cols'] = LEAD_EXPORT_COLUMNS.map((column) => ({ wch: column.width }));
+
+    const workbook = XLSX.utils.book_new();
+    workbook.Props = {
+        Title: segment.label,
+        Subject: 'Exportacao de leads',
+        Author: 'Codex',
+        CreatedDate: new Date()
+    };
+    XLSX.utils.book_append_sheet(workbook, worksheet, String(segment.sheetName || 'Leads').slice(0, 31));
+
+    return XLSX.write(workbook, {
+        type: 'buffer',
+        bookType: 'xlsx',
+        compression: true
+    });
+}
+
 async function listLeadTxidsForReconcile({ maxTx = 50000, pageSize = 500, includeConfirmed = true } = {}) {
     const entries = [];
     const seen = new Set();
@@ -841,41 +1414,24 @@ async function getLeads(req, res) {
         return;
     }
 
-    const url = new URL(`${SUPABASE_URL}/rest/v1/leads`);
     const limit = Math.min(Math.max(Number(req.query.limit) || 50, 1), 200);
     const offset = Math.max(Number(req.query.offset) || 0, 0);
     const query = String(req.query.q || '').trim();
 
-    url.searchParams.set('select', 'session_id,name,cpf,email,phone,stage,last_event,cep,address_line,number,neighborhood,city,state,shipping_name,shipping_price,bump_selected,bump_price,pix_txid,pix_amount,utm_source,utm_campaign,utm_term,utm_content,fbclid,gclid,payload,updated_at,created_at');
-    url.searchParams.set('order', 'updated_at.desc');
-    url.searchParams.set('limit', String(limit));
-    url.searchParams.set('offset', String(offset));
-    if (range.fromIso) url.searchParams.append('updated_at', `gte.${range.fromIso}`);
-    if (range.toIso) url.searchParams.append('updated_at', `lte.${range.toIso}`);
-
-    if (query) {
-        const ilike = `%${query.replace(/%/g, '')}%`;
-        url.searchParams.set(
-            'or',
-            `name.ilike.${ilike},email.ilike.${ilike},phone.ilike.${ilike},cpf.ilike.${ilike},utm_source.ilike.${ilike},utm_campaign.ilike.${ilike},utm_term.ilike.${ilike},utm_content.ilike.${ilike}`
-        );
-    }
-
-    const response = await fetchFn(url.toString(), {
-        headers: {
-            apikey: SUPABASE_SERVICE_KEY,
-            Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
-            'Content-Type': 'application/json'
-        }
+    const response = await fetchLeadsPage({
+        range,
+        query,
+        limit,
+        offset,
+        select: LEADS_SELECT_FIELDS
     });
 
     if (!response.ok) {
-        const detail = await response.text().catch(() => '');
-        res.status(502).json({ error: 'Falha ao buscar leads.', detail });
+        res.status(502).json({ error: 'Falha ao buscar leads.', detail: response.detail || '' });
         return;
     }
 
-    const rows = await response.json().catch(() => []);
+    const rows = response.rows || [];
     const data = Array.isArray(rows) ? rows.map(mapLeadReadable) : [];
 
     const withSummary = String(req.query.summary || '0') === '1';
@@ -1051,6 +1607,57 @@ async function getLeads(req, res) {
     summary.funnel = buildNativeFunnel(summary, pageCounts);
 
     res.status(200).json({ data, summary });
+}
+
+async function exportLeads(req, res) {
+    if (req.method !== 'GET') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    if (!requireAdmin(req, res)) return;
+
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+        res.status(500).json({ error: 'Supabase nao configurado.' });
+        return;
+    }
+
+    const range = parseLeadsDateRange(req.query || {});
+    if (!range.ok) {
+        res.status(400).json({ error: range.error || 'Filtro de data invalido.' });
+        return;
+    }
+
+    const segmentKey = String(firstQueryValue(req.query?.segment) || LEAD_EXPORT_SEGMENTS.all.key).trim();
+    const segment = resolveLeadExportSegment(segmentKey);
+    if (!LEAD_EXPORT_SEGMENTS[segmentKey] && segmentKey !== LEAD_EXPORT_SEGMENTS.all.key) {
+        res.status(400).json({ error: 'Filtro de exportacao invalido.' });
+        return;
+    }
+
+    const query = String(firstQueryValue(req.query?.q) || '').trim();
+    const maxRows = clamp(firstQueryValue(req.query?.max) || MAX_LEADS_EXPORT_ROWS, 1, MAX_LEADS_EXPORT_ROWS);
+    const result = await fetchAllLeadsForExport({
+        range,
+        query,
+        maxRows
+    });
+
+    if (!result.ok) {
+        res.status(502).json({ error: 'Falha ao montar a exportacao.', detail: result.detail || '' });
+        return;
+    }
+
+    const matches = result.rows.filter((row) => leadMatchesExportSegment(row, asObject(row?.payload), segment.key));
+    const workbookBuffer = buildLeadExportWorkbook(matches, segment);
+    const fileDate = new Date().toISOString().slice(0, 10);
+    const fileName = `leads-${segment.fileSlug}-${fileDate}.xlsx`;
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet');
+    res.setHeader('Content-Disposition', `attachment; filename="${fileName}"`);
+    res.setHeader('X-Export-Count', String(matches.length));
+    res.setHeader('X-Export-Scanned', String(result.rows.length));
+    res.setHeader('X-Export-Truncated', result.truncated ? '1' : '0');
+    res.status(200).send(workbookBuffer);
 }
 
 async function getPages(req, res) {
@@ -2036,6 +2643,8 @@ module.exports = async (req, res) => {
             return settings(req, res);
         case 'leads':
             return getLeads(req, res);
+        case 'leads/export':
+            return exportLeads(req, res);
         case 'pages':
             return getPages(req, res);
         case 'backredirects':
