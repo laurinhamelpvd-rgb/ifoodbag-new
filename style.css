@@ -693,7 +693,48 @@ body[data-page='success'] #btn-checkout:disabled {
 
 @media (max-width: 640px) {
     body[data-page='success'] .success-offer-grid {
-        grid-template-columns: 1fr;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
+        gap: 8px;
+    }
+
+    body[data-page='success'] .product-card {
+        padding: 14px 10px;
+    }
+
+    body[data-page='success'] .success-reward-card {
+        padding: 12px 8px 10px;
+        gap: 8px;
+        border-radius: 16px;
+    }
+
+    body[data-page='success'] .success-reward-media {
+        min-height: 112px;
+    }
+
+    body[data-page='success'] .success-reward-image {
+        max-height: 118px;
+        transform: scale(1.08);
+    }
+
+    body[data-page='success'] [data-reward-id='kit_entregador'] .success-reward-image {
+        max-height: 126px;
+        transform: scale(1.18);
+    }
+
+    body[data-page='success'] .success-reward-title {
+        font-size: 0.82rem;
+    }
+
+    body[data-page='success'] .price-row {
+        gap: 6px;
+    }
+
+    body[data-page='success'] .old-price {
+        font-size: 0.72rem;
+    }
+
+    body[data-page='success'] .new-price {
+        font-size: 1rem;
     }
 }
 
@@ -4756,24 +4797,42 @@ body.modal-open {
 
 @media (max-width: 480px) {
     body[data-page='success'] .product-card {
-        padding: 14px;
+        padding: 12px 8px;
     }
 
     body[data-page='success'] .success-reward-card {
-        padding: 14px 12px;
-        gap: 10px;
+        padding: 10px 6px 9px;
+        gap: 7px;
     }
 
     body[data-page='success'] .success-reward-media {
-        min-height: 120px;
+        min-height: 104px;
     }
 
     body[data-page='success'] .success-reward-image {
-        max-height: 120px;
+        max-height: 112px;
+        transform: scale(1.08);
+    }
+
+    body[data-page='success'] [data-reward-id='kit_entregador'] .success-reward-image {
+        max-height: 122px;
+        transform: scale(1.2);
     }
 
     body[data-page='success'] .success-reward-title {
-        font-size: 1rem;
+        font-size: 0.78rem;
+    }
+
+    body[data-page='success'] .price-row {
+        gap: 4px;
+    }
+
+    body[data-page='success'] .old-price {
+        font-size: 0.68rem;
+    }
+
+    body[data-page='success'] .new-price {
+        font-size: 0.94rem;
     }
 
     .modal {
