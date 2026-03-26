@@ -153,15 +153,15 @@ function asObject(input) {
 }
 
 const REWARD_CATALOG = {
-    bau: {
-        id: 'bau',
-        name: 'Bau do iFood',
-        extraPrice: 0
-    },
     bag: {
         id: 'bag',
         name: 'Bag do iFood',
         extraPrice: 0
+    },
+    bau: {
+        id: 'bau',
+        name: 'Ba\u00fa do iFood',
+        extraPrice: 39.9
     },
     kit_entregador: {
         id: 'kit_entregador',

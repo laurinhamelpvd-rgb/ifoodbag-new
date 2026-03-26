@@ -113,16 +113,6 @@ const STORAGE_KEYS = {
 };
 
 const REWARD_CATALOG = {
-    bau: {
-        id: 'bau',
-        name: 'Bau do iFood',
-        asset: 'assets/__task____isolate_ifood_delivery_box_white_background_,_202603260112 (1).webp',
-        successOriginalPrice: 249.9,
-        successDisplayPrice: 0,
-        checkoutExtraPrice: 0,
-        pixTitle: 'Bau do iFood',
-        pixAlt: 'Bau do iFood'
-    },
     bag: {
         id: 'bag',
         name: 'Bag do iFood',
@@ -132,6 +122,16 @@ const REWARD_CATALOG = {
         checkoutExtraPrice: 0,
         pixTitle: 'Bag do iFood',
         pixAlt: 'Bag do iFood'
+    },
+    bau: {
+        id: 'bau',
+        name: 'Ba\u00fa do iFood',
+        asset: 'assets/__task____isolate_ifood_delivery_box_white_background_,_202603260112 (1).webp',
+        successOriginalPrice: 249.9,
+        successDisplayPrice: 39.9,
+        checkoutExtraPrice: 39.9,
+        pixTitle: 'Ba\u00fa do iFood',
+        pixAlt: 'Ba\u00fa do iFood'
     },
     kit_entregador: {
         id: 'kit_entregador',
@@ -1628,7 +1628,7 @@ function initCheckout() {
     let address = loadAddress() || {};
     let shipping = loadShipping();
     const rewardExtraPrice = getRewardExtraPrice(reward);
-    const isKitReward = reward.id === 'kit_entregador';
+    const hasRewardExtra = rewardExtraPrice > 0;
     const checkoutParams = new URLSearchParams(window.location.search || '');
     const forceFreteSelection = checkoutParams.get('forceFrete') === '1';
     if (forceFreteSelection) {
@@ -1674,8 +1674,9 @@ function initCheckout() {
     const freightOptions = document.getElementById('freight-options');
     const freightHint = document.getElementById('freight-hint');
     const shippingTotal = document.getElementById('shipping-total');
-    const rewardKitTotal = document.getElementById('reward-kit-total');
-    const rewardKitPrice = document.getElementById('reward-kit-price');
+    const rewardExtraTotal = document.getElementById('reward-extra-total');
+    const rewardExtraLabel = document.getElementById('reward-extra-label');
+    const rewardExtraPriceNode = document.getElementById('reward-extra-price');
     const checkoutGrandTotal = document.getElementById('checkout-grand-total');
     const checkoutGrandTotalPrice = document.getElementById('checkout-grand-total-price');
     const btnFinish = document.getElementById('btn-finish');
@@ -1720,16 +1721,17 @@ function initCheckout() {
             }
         }
 
-        if (rewardKitTotal) {
-            const showRewardExtra = isKitReward;
-            if (showRewardExtra && rewardKitPrice) {
-                rewardKitPrice.textContent = formatCurrency(rewardExtraPrice);
+        if (rewardExtraTotal) {
+            const showRewardExtra = hasRewardExtra;
+            if (showRewardExtra) {
+                if (rewardExtraLabel) rewardExtraLabel.textContent = `Adicional ${reward.name}`;
+                if (rewardExtraPriceNode) rewardExtraPriceNode.textContent = formatCurrency(rewardExtraPrice);
             }
-            setHidden(rewardKitTotal, !showRewardExtra);
+            setHidden(rewardExtraTotal, !showRewardExtra);
         }
 
         if (checkoutGrandTotal) {
-            const showGrandTotal = isKitReward && !!selectedShipping;
+            const showGrandTotal = hasRewardExtra && !!selectedShipping;
             if (showGrandTotal && checkoutGrandTotalPrice) {
                 const total = Number((Number(selectedShipping?.price || 0) + rewardExtraPrice).toFixed(2));
                 checkoutGrandTotalPrice.textContent = formatCurrency(total);
@@ -2871,6 +2873,7 @@ function initPix() {
     const pixOrderTitle = document.getElementById('pix-order-title');
     const pixOrderImage = document.getElementById('pix-order-image');
     const pixRewardRow = document.getElementById('pix-reward-row');
+    const pixRewardLabel = document.getElementById('pix-reward-label');
     const pixRewardPrice = document.getElementById('pix-reward-price');
     const pixBumpRow = document.getElementById('pix-bump-row');
     const pixBumpPrice = document.getElementById('pix-bump-price');
@@ -3003,6 +3006,7 @@ function initPix() {
     }
     if (pixRewardRow) {
         if (rewardExtraPrice > 0 && pixRewardPrice) {
+            if (pixRewardLabel) pixRewardLabel.textContent = `Adicional ${reward.name}`;
             pixRewardPrice.textContent = formatCurrency(rewardExtraPrice);
             pixRewardRow.classList.remove('hidden');
         } else {

@@ -681,10 +681,6 @@ body[data-page='success'] .price-row {
     justify-content: center;
 }
 
-body[data-page='success'] .success-reward-card--paid .new-price {
-    color: var(--primary-color);
-}
-
 body[data-page='success'] #btn-checkout:disabled {
     background: linear-gradient(180deg, #f7c6ca 0%, #efadb3 100%);
     box-shadow: none;
@@ -693,48 +689,47 @@ body[data-page='success'] #btn-checkout:disabled {
 
 @media (max-width: 640px) {
     body[data-page='success'] .success-offer-grid {
-        grid-template-columns: repeat(3, minmax(0, 1fr));
-        gap: 8px;
+        grid-template-columns: 1fr;
+        gap: 12px;
     }
 
     body[data-page='success'] .product-card {
-        padding: 14px 10px;
+        padding: 14px;
     }
 
     body[data-page='success'] .success-reward-card {
-        padding: 12px 8px 10px;
-        gap: 8px;
+        padding: 16px 14px;
+        gap: 12px;
         border-radius: 16px;
     }
 
     body[data-page='success'] .success-reward-media {
-        min-height: 112px;
+        min-height: 146px;
     }
 
     body[data-page='success'] .success-reward-image {
-        max-height: 118px;
-        transform: scale(1.08);
+        max-height: 148px;
     }
 
     body[data-page='success'] [data-reward-id='kit_entregador'] .success-reward-image {
-        max-height: 126px;
-        transform: scale(1.18);
+        max-height: 160px;
+        transform: scale(1.05);
     }
 
     body[data-page='success'] .success-reward-title {
-        font-size: 0.82rem;
+        font-size: 1rem;
     }
 
     body[data-page='success'] .price-row {
-        gap: 6px;
+        gap: 8px;
     }
 
     body[data-page='success'] .old-price {
-        font-size: 0.72rem;
+        font-size: 0.8rem;
     }
 
     body[data-page='success'] .new-price {
-        font-size: 1rem;
+        font-size: 1.14rem;
     }
 }
 
@@ -1872,13 +1867,13 @@ body[data-page='upsell-iof'] .action-stack {
     flex-wrap: wrap;
 }
 
-.summary-total--kit {
+.summary-total--reward {
     background: #fff8ef;
     border-color: #f7dbaf;
 }
 
-.summary-total--kit strong {
-    color: #d16f08;
+.summary-total--reward strong {
+    color: var(--success-color);
 }
 
 .summary-total--grand {
@@ -2458,7 +2453,7 @@ body[data-page='pix'] .step {
 }
 
 #pix-reward-row strong {
-    color: var(--primary-color);
+    color: var(--success-color);
 }
 
 .pix-empty {
@@ -4797,42 +4792,41 @@ body.modal-open {
 
 @media (max-width: 480px) {
     body[data-page='success'] .product-card {
-        padding: 12px 8px;
+        padding: 12px;
     }
 
     body[data-page='success'] .success-reward-card {
-        padding: 10px 6px 9px;
-        gap: 7px;
+        padding: 14px 12px;
+        gap: 10px;
     }
 
     body[data-page='success'] .success-reward-media {
-        min-height: 104px;
+        min-height: 136px;
     }
 
     body[data-page='success'] .success-reward-image {
-        max-height: 112px;
-        transform: scale(1.08);
+        max-height: 140px;
     }
 
     body[data-page='success'] [data-reward-id='kit_entregador'] .success-reward-image {
-        max-height: 122px;
-        transform: scale(1.2);
+        max-height: 152px;
+        transform: scale(1.05);
     }
 
     body[data-page='success'] .success-reward-title {
-        font-size: 0.78rem;
+        font-size: 0.96rem;
     }
 
     body[data-page='success'] .price-row {
-        gap: 4px;
+        gap: 6px;
     }
 
     body[data-page='success'] .old-price {
-        font-size: 0.68rem;
+        font-size: 0.78rem;
     }
 
     body[data-page='success'] .new-price {
-        font-size: 0.94rem;
+        font-size: 1.08rem;
     }
 
     .modal {
