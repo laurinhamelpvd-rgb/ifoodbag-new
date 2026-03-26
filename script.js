@@ -6092,17 +6092,29 @@ async function initMarketing() {
         metaConfig: pixel,
         tiktokConfig: tiktokPixel
     });
+    const metaEnabled = isBrowserPixelEnabled(pixel);
+    const tiktokEnabled = isBrowserPixelEnabled(tiktokPixel);
+    const hasResolvedSource = !!String(routing?.sourcePlatform || '').trim();
+    const shouldSendMetaPageView = metaEnabled && pixel.events?.page_view !== false && (routing.meta || !hasResolvedSource);
+    const shouldSendTikTokPageView = tiktokEnabled && tiktokPixel.events?.page_view !== false && (routing.tiktok || !hasResolvedSource);
     const page = String(document.body?.dataset?.page || '').trim();
     const pixData = loadPix() || {};
     const pixAmount = Number(pixData?.amount || 0);
 
-    if (routing.meta && isBrowserPixelEnabled(pixel)) {
+    if (metaEnabled) {
         loadFacebookPixel(pixel.id);
+    }
+    if (tiktokEnabled) {
+        loadTikTokPixel(tiktokPixel.id, {
+            firePageView: shouldSendTikTokPageView
+        });
+    }
 
-        if (pixel.events?.page_view !== false) {
-            fireMetaPixelEvent('PageView');
-        }
+    if (shouldSendMetaPageView) {
+        fireMetaPixelEvent('PageView');
+    }
 
+    if (routing.meta && metaEnabled) {
         if (page === 'pix' && pixel.events?.checkout !== false) {
             fireMetaPixelEvent('InitiateCheckout', {
                 currency: 'BRL',
@@ -6118,11 +6130,7 @@ async function initMarketing() {
         }
     }
 
-    if (routing.tiktok && isBrowserPixelEnabled(tiktokPixel)) {
-        loadTikTokPixel(tiktokPixel.id, {
-            firePageView: tiktokPixel.events?.page_view !== false
-        });
-
+    if (routing.tiktok && tiktokEnabled) {
         if (page === 'pix' && tiktokPixel.events?.checkout !== false) {
             fireTikTokPixelEvent('InitiateCheckout', {
                 content_type: 'product',
