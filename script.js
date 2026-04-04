@@ -3257,10 +3257,18 @@ function initPix() {
         };
 
         let attempt = await send();
+        if (isBlockedApiPayload(attempt?.response, attempt?.body)) {
+            redirectToBlockedPage();
+            return attempt;
+        }
         const firstError = String(attempt?.body?.error || '').trim();
         if (!attempt.response.ok && (attempt.response.status === 401 || looksLikeSessionError(firstError))) {
             await ensureApiSession(true).catch(() => null);
             attempt = await send();
+            if (isBlockedApiPayload(attempt?.response, attempt?.body)) {
+                redirectToBlockedPage();
+                return attempt;
+            }
         }
 
         return attempt;
@@ -3635,6 +3643,20 @@ function initAdmin() {
     const leadsMore = document.getElementById('leads-more');
     const leadsReconcile = document.getElementById('leads-reconcile');
     const leadsReconcileStatus = document.getElementById('leads-reconcile-status');
+    const leadDetailModal = document.getElementById('lead-detail-modal');
+    const leadDetailClose = document.getElementById('lead-detail-close');
+    const leadDetailTitle = document.getElementById('lead-detail-title');
+    const leadDetailSubtitle = document.getElementById('lead-detail-subtitle');
+    const leadDetailMeta = document.getElementById('lead-detail-meta');
+    const leadDetailBlockState = document.getElementById('lead-detail-block-state');
+    const leadDetailBlockBtn = document.getElementById('lead-detail-block-ip');
+    const leadDetailUnblockBtn = document.getElementById('lead-detail-unblock-ip');
+    const leadDetailGrid = document.getElementById('lead-detail-grid');
+    const leadDetailPages = document.getElementById('lead-detail-pages');
+    const leadDetailPayload = document.getElementById('lead-detail-payload');
+    const ipBlacklistBody = document.getElementById('ip-blacklist-body');
+    const ipBlacklistCount = document.getElementById('ip-blacklist-count');
+    const ipBlacklistEmpty = document.getElementById('ip-blacklist-empty');
     const metricTotal = document.getElementById('metric-total');
     const metricPix = document.getElementById('metric-pix');
     const metricFrete = document.getElementById('metric-frete');
@@ -3728,6 +3750,8 @@ function initAdmin() {
     };
     let overviewRange = { preset: 'all', from: '', to: '' };
     let currentSettings = null;
+    let currentLeadDetail = null;
+    let currentIpBlacklist = [];
 
     const ensurePushcutTemplateFields = () => {
         const pushcutSection = document.querySelector('.pushcut-settings');
@@ -3957,6 +3981,289 @@ function initAdmin() {
             ...options
         });
         return res;
+    };
+
+    const escapeHtml = (value) => String(value ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;')
+        .replace(/'/g, '&#39;');
+
+    const formatDetailValue = (value, fallback = '-') => {
+        const text = String(value ?? '').trim();
+        return text || fallback;
+    };
+
+    const buildLeadDetailCardHtml = (title, items = []) => {
+        const body = items
+            .filter((item) => item && (item.value !== undefined))
+            .map((item) => `
+                <div class="lead-detail-item">
+                    <strong>${escapeHtml(item.label || '-')}</strong>
+                    <span>${escapeHtml(formatDetailValue(item.value, item.fallback || '-'))}</span>
+                </div>
+            `)
+            .join('');
+
+        return `
+            <article class="lead-detail-card">
+                <h4>${escapeHtml(title || '-')}</h4>
+                <div class="lead-detail-list">${body || '<span class="admin-muted">Sem dados.</span>'}</div>
+            </article>
+        `;
+    };
+
+    const setLeadDetailModalVisible = (visible) => {
+        if (!leadDetailModal) return;
+        leadDetailModal.classList.toggle('hidden', !visible);
+        leadDetailModal.setAttribute('aria-hidden', visible ? 'false' : 'true');
+        document.body.classList.toggle('modal-open', !!visible);
+    };
+
+    const closeLeadDetailModal = () => {
+        currentLeadDetail = null;
+        setLeadDetailModalVisible(false);
+    };
+
+    const renderIpBlacklist = (entries = []) => {
+        if (!ipBlacklistBody) return;
+        currentIpBlacklist = Array.isArray(entries) ? entries : [];
+        ipBlacklistBody.innerHTML = '';
+
+        currentIpBlacklist.forEach((entry) => {
+            const tr = document.createElement('tr');
+            const lead = entry?.lead || {};
+            tr.innerHTML = `
+                <td class="lead-cell">${escapeHtml(formatDetailValue(entry?.ip))}</td>
+                <td class="lead-cell lead-cell--name"><strong>${escapeHtml(formatDetailValue(lead?.name))}</strong></td>
+                <td class="lead-cell lead-cell--email">${escapeHtml(formatDetailValue(lead?.email))}</td>
+                <td class="lead-cell">${escapeHtml(formatDetailValue(lead?.rewardName))}</td>
+                <td class="lead-cell">${escapeHtml(formatDetailValue(lead?.shippingName))}</td>
+                <td class="lead-cell">${escapeHtml(formatDateTime(entry?.blockedAt))}</td>
+                <td class="lead-cell">
+                    <button class="admin-quiz-btn" type="button" data-remove-block-ip="${escapeHtml(entry?.ip || '')}">Remover</button>
+                </td>
+            `;
+            ipBlacklistBody.appendChild(tr);
+        });
+
+        if (ipBlacklistCount) ipBlacklistCount.textContent = String(currentIpBlacklist.length);
+        if (ipBlacklistEmpty) ipBlacklistEmpty.classList.toggle('hidden', currentIpBlacklist.length > 0);
+    };
+
+    const loadIpBlacklist = async () => {
+        if (!ipBlacklistBody) return;
+        const res = await adminFetch('/api/admin/ip-blacklist');
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            showToast(data?.error || 'Falha ao carregar blacklist de IP.', 'error');
+            return;
+        }
+        renderIpBlacklist(data?.entries || []);
+    };
+
+    const renderLeadDetail = (detail) => {
+        if (!leadDetailModal || !detail) return;
+        currentLeadDetail = detail;
+
+        const rewardName = formatDetailValue(detail?.reward?.name);
+        const shippingName = formatDetailValue(detail?.shipping?.name);
+        const valueText = detail?.payment?.amount ? formatCurrency(detail.payment.amount) : '-';
+        const clientIp = formatDetailValue(detail?.device?.clientIp);
+        const blockedEntry = detail?.block?.entry || null;
+        const isBlocked = detail?.block?.blocked === true;
+
+        if (leadDetailTitle) {
+            leadDetailTitle.textContent = formatDetailValue(detail?.customer?.name, 'Lead sem nome');
+        }
+        if (leadDetailSubtitle) {
+            leadDetailSubtitle.textContent = `${formatDetailValue(detail?.sessionId)} · ${formatDetailValue(detail?.payment?.gatewayLabel)}`;
+        }
+        if (leadDetailMeta) {
+            leadDetailMeta.innerHTML = `
+                <span class="admin-quiz-chip">${escapeHtml(formatDetailValue(detail?.readable?.status_funil, '-'))}</span>
+                <span class="admin-quiz-chip">${escapeHtml(formatDetailValue(detail?.readable?.evento, '-'))}</span>
+                <span class="admin-quiz-chip">${escapeHtml(valueText)}</span>
+                <span class="admin-quiz-chip">${escapeHtml(rewardName)}</span>
+                <span class="admin-quiz-chip">${escapeHtml(shippingName)}</span>
+            `;
+        }
+
+        if (leadDetailBlockState) {
+            if (isBlocked && blockedEntry) {
+                leadDetailBlockState.textContent = `IP bloqueado: ${clientIp} em ${formatDateTime(blockedEntry?.blockedAt)}.`;
+                leadDetailBlockState.classList.remove('hidden');
+            } else {
+                leadDetailBlockState.textContent = `IP atual do lead: ${clientIp}. O bloqueio e exato por IP.`;
+                leadDetailBlockState.classList.remove('hidden');
+            }
+        }
+
+        if (leadDetailBlockBtn) {
+            leadDetailBlockBtn.disabled = !detail?.device?.clientIp || isBlocked;
+            leadDetailBlockBtn.classList.toggle('hidden', isBlocked);
+        }
+        if (leadDetailUnblockBtn) {
+            leadDetailUnblockBtn.disabled = !isBlocked;
+            leadDetailUnblockBtn.classList.toggle('hidden', !isBlocked);
+        }
+
+        if (leadDetailGrid) {
+            leadDetailGrid.innerHTML = [
+                buildLeadDetailCardHtml('Contato', [
+                    { label: 'Email', value: detail?.customer?.email },
+                    { label: 'Telefone', value: detail?.customer?.phone },
+                    { label: 'CPF', value: detail?.customer?.cpf },
+                    { label: 'Sessao', value: detail?.sessionId }
+                ]),
+                buildLeadDetailCardHtml('Endereco e Localidade', [
+                    { label: 'CEP', value: detail?.address?.cep },
+                    { label: 'Endereco', value: detail?.address?.addressLine },
+                    { label: 'Numero', value: detail?.address?.number },
+                    { label: 'Complemento', value: detail?.address?.complement },
+                    { label: 'Bairro', value: detail?.address?.neighborhood },
+                    { label: 'Cidade', value: detail?.address?.city },
+                    { label: 'Estado', value: detail?.address?.state },
+                    { label: 'Referencia', value: detail?.address?.reference }
+                ]),
+                buildLeadDetailCardHtml('Produto e Oferta', [
+                    { label: 'Produto selecionado', value: rewardName },
+                    { label: 'Produto ID', value: detail?.reward?.id },
+                    { label: 'Frete selecionado', value: shippingName },
+                    { label: 'Frete ID', value: detail?.shipping?.id },
+                    { label: 'Seguro Bag', value: detail?.bump?.selected ? 'Sim' : 'Nao' }
+                ]),
+                buildLeadDetailCardHtml('Pagamento', [
+                    { label: 'Gateway', value: detail?.payment?.gatewayLabel },
+                    { label: 'Status', value: detail?.payment?.status },
+                    { label: 'Evento', value: detail?.payment?.event },
+                    { label: 'TXID', value: detail?.payment?.pixTxid },
+                    { label: 'Status bruto', value: detail?.payment?.pixStatusRaw },
+                    { label: 'Valor', value: valueText },
+                    { label: 'Criado em', value: formatDateTime(detail?.payment?.createdAt) },
+                    { label: 'Atualizado em', value: formatDateTime(detail?.payment?.updatedAt) }
+                ]),
+                buildLeadDetailCardHtml('Tracking', [
+                    { label: 'UTM Source', value: detail?.tracking?.utmSource },
+                    { label: 'UTM Medium', value: detail?.tracking?.utmMedium },
+                    { label: 'UTM Campaign', value: detail?.tracking?.utmCampaign },
+                    { label: 'UTM Term', value: detail?.tracking?.utmTerm },
+                    { label: 'UTM Content', value: detail?.tracking?.utmContent },
+                    { label: 'FBCLID', value: detail?.tracking?.fbclid },
+                    { label: 'GCLID', value: detail?.tracking?.gclid },
+                    { label: 'TTCLID', value: detail?.tracking?.ttclid },
+                    { label: 'Referrer', value: detail?.tracking?.referrer },
+                    { label: 'Landing page', value: detail?.tracking?.landingPage },
+                    { label: 'Source URL', value: detail?.tracking?.sourceUrl }
+                ]),
+                buildLeadDetailCardHtml('Dispositivo e Rede', [
+                    { label: 'IP publico', value: detail?.device?.clientIp },
+                    { label: 'Resumo', value: detail?.device?.summary },
+                    { label: 'User-Agent', value: detail?.device?.userAgent }
+                ])
+            ].join('');
+        }
+
+        if (leadDetailPages) {
+            const pages = Array.isArray(detail?.pageviews) ? detail.pageviews : [];
+            leadDetailPages.innerHTML = pages.length
+                ? pages.map((page) => `
+                    <article class="lead-detail-page">
+                        <strong>${escapeHtml(formatDetailValue(page?.label))}</strong>
+                        <span>${escapeHtml(formatDetailValue(page?.description))}</span>
+                        <span>Primeiro registro: ${escapeHtml(formatDateTime(page?.createdAt))}</span>
+                    </article>
+                `).join('')
+                : '<span class="admin-muted">Nenhuma pagina registrada para esta sessao.</span>';
+        }
+
+        if (leadDetailPayload) {
+            leadDetailPayload.textContent = JSON.stringify(detail?.payload || {}, null, 2);
+        }
+
+        setLeadDetailModalVisible(true);
+    };
+
+    const openLeadDetail = async (sessionId) => {
+        const cleanSessionId = String(sessionId || '').trim();
+        if (!cleanSessionId || !leadDetailModal) return;
+
+        if (leadDetailTitle) leadDetailTitle.textContent = 'Detalhes do lead';
+        if (leadDetailSubtitle) leadDetailSubtitle.textContent = 'Carregando...';
+        if (leadDetailMeta) leadDetailMeta.innerHTML = '';
+        if (leadDetailGrid) leadDetailGrid.innerHTML = '';
+        if (leadDetailPages) leadDetailPages.innerHTML = '<span class="admin-muted">Carregando...</span>';
+        if (leadDetailPayload) leadDetailPayload.textContent = '{}';
+        if (leadDetailBlockState) leadDetailBlockState.classList.add('hidden');
+        setLeadDetailModalVisible(true);
+
+        const res = await adminFetch(`/api/admin/leads/${encodeURIComponent(cleanSessionId)}`);
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok || !data?.ok) {
+            showToast(data?.error || 'Falha ao carregar detalhes do lead.', 'error');
+            closeLeadDetailModal();
+            return;
+        }
+
+        renderLeadDetail(data?.data || null);
+    };
+
+    const removeBlockedIp = async (ip, { silent = false } = {}) => {
+        const cleanIp = String(ip || '').trim();
+        if (!cleanIp) return false;
+
+        const res = await adminFetch(`/api/admin/ip-blacklist?ip=${encodeURIComponent(cleanIp)}`, {
+            method: 'DELETE'
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            if (!silent) showToast(data?.error || 'Falha ao remover IP da blacklist.', 'error');
+            return false;
+        }
+
+        renderIpBlacklist(data?.entries || []);
+        if (currentLeadDetail?.device?.clientIp === cleanIp) {
+            currentLeadDetail.block = { blocked: false, entry: null };
+            renderLeadDetail(currentLeadDetail);
+        }
+        if (!silent) showToast('IP removido da blacklist.', 'success');
+        return true;
+    };
+
+    const blockCurrentLeadIp = async () => {
+        const detail = currentLeadDetail;
+        const ip = String(detail?.device?.clientIp || '').trim();
+        const sessionId = String(detail?.sessionId || '').trim();
+        if (!ip || !sessionId) {
+            showToast('Nao existe IP valido para bloquear neste lead.', 'error');
+            return;
+        }
+
+        const confirmed = window.confirm(`Tem certeza que deseja bloquear o IP ${ip}?`);
+        if (!confirmed) return;
+
+        const res = await adminFetch('/api/admin/ip-blacklist', {
+            method: 'POST',
+            body: JSON.stringify({
+                sessionId,
+                ip,
+                reason: 'Bloqueio manual via admin'
+            })
+        });
+        const data = await res.json().catch(() => ({}));
+        if (!res.ok) {
+            showToast(data?.error || 'Falha ao bloquear IP.', 'error');
+            return;
+        }
+
+        renderIpBlacklist(data?.entries || []);
+        currentLeadDetail.block = {
+            blocked: true,
+            entry: (data?.entries || []).find((entry) => String(entry?.ip || '').trim() === ip) || null
+        };
+        renderLeadDetail(currentLeadDetail);
+        showToast('IP bloqueado com sucesso.', 'success');
     };
 
     const readDownloadFileName = (contentDisposition, fallbackName) => {
@@ -4358,6 +4665,7 @@ function initAdmin() {
 
         rows.forEach((row) => {
             const tr = document.createElement('tr');
+            const sessionId = String(row.session_id || '').trim();
             const ev = String(row.evento || '').toLowerCase().trim();
             const isPaid = row.is_paid === true || ev === 'pix_confirmed' || ev === 'pagamento_confirmado' || ev === 'paid';
             const rawStatus = String(row.status_funil || row.evento || '').toLowerCase().trim();
@@ -4378,6 +4686,9 @@ function initAdmin() {
             const term = String(row.utm_term_label || row.utm_term || '-').trim() || '-';
             const adset = String(row.utm_adset_name || row.utm_adset_label || row.utm_adset || '-').trim() || '-';
             const adsetRaw = adset;
+            tr.classList.add('admin-table-row--clickable');
+            tr.tabIndex = 0;
+            if (sessionId) tr.dataset.sessionId = sessionId;
             tr.innerHTML = `
                 <td class="lead-cell lead-cell--name"><strong>${esc(row.nome || '-')}</strong></td>
                 <td class="lead-cell lead-cell--email">${esc(row.email || '-')}</td>
@@ -4993,6 +5304,47 @@ function initAdmin() {
         }
     };
 
+    leadsBody?.addEventListener('click', (event) => {
+        const row = event.target?.closest?.('tr[data-session-id]');
+        if (!row) return;
+        openLeadDetail(row.getAttribute('data-session-id') || '');
+    });
+    leadsBody?.addEventListener('keydown', (event) => {
+        if (event.key !== 'Enter' && event.key !== ' ') return;
+        const row = event.target?.closest?.('tr[data-session-id]');
+        if (!row) return;
+        event.preventDefault();
+        openLeadDetail(row.getAttribute('data-session-id') || '');
+    });
+    ipBlacklistBody?.addEventListener('click', async (event) => {
+        const button = event.target?.closest?.('[data-remove-block-ip]');
+        if (!button) return;
+        const ip = button.getAttribute('data-remove-block-ip') || '';
+        if (!ip) return;
+        const confirmed = window.confirm(`Tem certeza que deseja remover o bloqueio do IP ${ip}?`);
+        if (!confirmed) return;
+        await removeBlockedIp(ip);
+    });
+    leadDetailClose?.addEventListener('click', closeLeadDetailModal);
+    leadDetailModal?.addEventListener('click', (event) => {
+        if (event.target === leadDetailModal) {
+            closeLeadDetailModal();
+        }
+    });
+    leadDetailBlockBtn?.addEventListener('click', blockCurrentLeadIp);
+    leadDetailUnblockBtn?.addEventListener('click', async () => {
+        const ip = String(currentLeadDetail?.device?.clientIp || '').trim();
+        if (!ip) return;
+        const confirmed = window.confirm(`Tem certeza que deseja remover o bloqueio do IP ${ip}?`);
+        if (!confirmed) return;
+        await removeBlockedIp(ip);
+    });
+    document.addEventListener('keydown', (event) => {
+        if (event.key === 'Escape' && leadDetailModal && !leadDetailModal.classList.contains('hidden')) {
+            closeLeadDetailModal();
+        }
+    });
+
     loginBtn?.addEventListener('click', async () => {
         if (loginError) loginError.classList.add('hidden');
         const password = passwordInput?.value || '';
@@ -5011,6 +5363,7 @@ function initAdmin() {
         setLoginVisible(false);
         if (hasPixelForm || hasUtmfyForm || hasPaymentsForm || hasFeatureForm) await loadSettings();
         if (wantsLeads) await loadLeads({ reset: true });
+        if (ipBlacklistBody) await loadIpBlacklist();
         if (wantsPages) await loadPageCounts();
         if (wantsBackredirects) await loadBackredirects();
     });
@@ -5113,6 +5466,7 @@ function initAdmin() {
             setLoginVisible(false);
             if (hasPixelForm || hasUtmfyForm || hasPaymentsForm || hasFeatureForm) loadSettings();
             if (wantsLeads) loadLeads({ reset: true });
+            if (ipBlacklistBody) loadIpBlacklist();
             if (wantsPages) loadPageCounts();
             if (wantsBackredirects) loadBackredirects();
             // Keep overview fresh without manual reload.
@@ -5688,10 +6042,18 @@ async function postPixCreateWithSessionRetry(payload) {
     };
 
     let attempt = await send();
+    if (isBlockedApiPayload(attempt?.response, attempt?.body)) {
+        redirectToBlockedPage();
+        return attempt;
+    }
     const firstError = String(attempt?.body?.error || '').trim();
     if (!attempt.response.ok && (attempt.response.status === 401 || looksLikeSessionError(firstError))) {
         await ensureApiSession(true).catch(() => null);
         attempt = await send();
+        if (isBlockedApiPayload(attempt?.response, attempt?.body)) {
+            redirectToBlockedPage();
+            return attempt;
+        }
     }
 
     return attempt;
@@ -5912,6 +6274,20 @@ function getLeadSessionId() {
     return sessionId;
 }
 
+function redirectToBlockedPage() {
+    const path = String(window.location.pathname || '').toLowerCase();
+    if (path.endsWith('/blocked.html') || path === '/blocked' || path.endsWith('/blocked')) {
+        return;
+    }
+    window.location.replace('/blocked.html');
+}
+
+function isBlockedApiPayload(response, body = null) {
+    if (!response || Number(response.status || 0) !== 403) return false;
+    const errorText = String(body?.error || '').toLowerCase();
+    return body?.blocked === true || body?.code === 'ip_blocked' || errorText.includes('bloqueado');
+}
+
 async function ensureApiSession(force = false) {
     const now = Date.now();
     const maxAgeMs = 50 * 60 * 1000;
@@ -5928,7 +6304,12 @@ async function ensureApiSession(force = false) {
         cache: 'no-store',
         credentials: 'same-origin'
     })
-        .then((res) => {
+        .then(async (res) => {
+            const body = await res.json().catch(() => ({}));
+            if (isBlockedApiPayload(res, body)) {
+                redirectToBlockedPage();
+                return false;
+            }
             if (!res.ok) throw new Error('Falha ao iniciar sessão segura.');
             state.apiSessionAt = Date.now();
             return true;
@@ -6035,6 +6416,10 @@ function trackPageView(page) {
             await ensureApiSession(true).catch(() => null);
             response = await send().catch(() => null);
         }
+        if (response?.status === 403) {
+            redirectToBlockedPage();
+            return;
+        }
         if (!response || response.ok) {
             return;
         }
@@ -6062,8 +6447,12 @@ async function ensureSiteConfig(force = false) {
     }
     try {
         const res = await fetch('/api/site/config', { cache: 'no-store' });
+        const data = await res.json().catch(() => ({}));
+        if (isBlockedApiPayload(res, data)) {
+            redirectToBlockedPage();
+            return { blocked: true };
+        }
         if (!res.ok) throw new Error('config');
-        const data = await res.json();
         state.siteConfig = data || {};
         state.siteConfigAt = Date.now();
         state.pixelConfig = data?.pixel || null;

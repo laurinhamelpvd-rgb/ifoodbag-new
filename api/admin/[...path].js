@@ -57,6 +57,13 @@ const {
     mapParadiseStatusToUtmify
 } = require('../../lib/paradise-status');
 const { enqueueDispatch, processDispatchQueue } = require('../../lib/dispatch-queue');
+const {
+    getIpBlacklist,
+    addBlockedIp,
+    removeBlockedIp,
+    findBlockedIp,
+    normalizeClientIp
+} = require('../../lib/ip-blacklist');
 
 const fetchFn = global.fetch
     ? global.fetch.bind(global)
@@ -69,6 +76,11 @@ const pick = (...values) => values.find((value) => value !== undefined && value 
 const clamp = (value, min, max) => Math.min(Math.max(Number(value) || 0, min), max);
 const SECRET_MASK = '__SECRET_SET__';
 const SIMPLE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
+const REWARD_LABELS = {
+    bag: 'Bag do iFood',
+    bau: 'Bau do iFood',
+    kit_entregador: 'Kit Entregador iFood'
+};
 const FUNNEL_OVERVIEW_STAGES = [
     {
         key: 'home',
@@ -1028,6 +1040,154 @@ function leadJourneyLabel(step) {
     return 'Front';
 }
 
+function describeLeadPage(page = '') {
+    const normalized = String(page || '').trim().toLowerCase();
+    const stage = FUNNEL_OVERVIEW_STAGES.find((item) => item?.source === 'page' && item?.page === normalized);
+    if (stage) {
+        return {
+            page: normalized,
+            label: stage.label || normalized || '-',
+            description: stage.description || 'Pagina registrada'
+        };
+    }
+
+    return {
+        page: normalized,
+        label: normalized
+            ? normalized
+                .replace(/[_-]+/g, ' ')
+                .replace(/\b\w/g, (char) => char.toUpperCase())
+            : '-',
+        description: 'Pagina registrada'
+    };
+}
+
+function summarizeUserAgent(userAgent = '') {
+    const ua = String(userAgent || '').toLowerCase();
+    if (!ua) return '-';
+
+    let browser = 'Navegador';
+    if (ua.includes('edg/')) browser = 'Edge';
+    else if (ua.includes('opr/') || ua.includes('opera')) browser = 'Opera';
+    else if (ua.includes('chrome/') && !ua.includes('edg/')) browser = 'Chrome';
+    else if (ua.includes('safari/') && !ua.includes('chrome/')) browser = 'Safari';
+    else if (ua.includes('firefox/')) browser = 'Firefox';
+
+    let os = 'SO desconhecido';
+    if (ua.includes('windows')) os = 'Windows';
+    else if (ua.includes('android')) os = 'Android';
+    else if (ua.includes('iphone') || ua.includes('ipad') || ua.includes('ios')) os = 'iOS';
+    else if (ua.includes('mac os x') || ua.includes('macintosh')) os = 'macOS';
+    else if (ua.includes('linux')) os = 'Linux';
+
+    let device = 'Desktop';
+    if (ua.includes('tablet') || ua.includes('ipad')) device = 'Tablet';
+    else if (ua.includes('mobile') || ua.includes('android') || ua.includes('iphone')) device = 'Mobile';
+
+    return `${browser} · ${os} · ${device}`;
+}
+
+function resolveLeadRewardInfo(row, payload) {
+    const rewardId = String(
+        payload?.reward?.id ||
+        payload?.rewardId ||
+        payload?.reward_id ||
+        ''
+    ).trim().toLowerCase();
+
+    const rewardName = String(
+        payload?.reward?.name ||
+        payload?.rewardName ||
+        REWARD_LABELS[rewardId] ||
+        ''
+    ).trim();
+
+    const rawPrice = pick(
+        payload?.reward?.checkoutExtraPrice,
+        payload?.reward?.extraPrice,
+        payload?.rewardExtraPrice
+    );
+    const rewardPrice = Number(rawPrice);
+
+    return {
+        id: rewardId || '',
+        name: rewardName || '-',
+        price: Number.isFinite(rewardPrice) ? rewardPrice : null
+    };
+}
+
+function resolveLeadShippingInfo(row, payload) {
+    const rawPrice = pick(
+        row?.shipping_price,
+        payload?.shipping?.price,
+        payload?.shippingPrice
+    );
+    const shippingPrice = Number(rawPrice);
+
+    return {
+        id: String(row?.shipping_id || payload?.shipping?.id || payload?.shippingId || '').trim(),
+        name: String(row?.shipping_name || payload?.shipping?.name || payload?.shippingName || '').trim() || '-',
+        price: Number.isFinite(shippingPrice) ? shippingPrice : null
+    };
+}
+
+function resolveLeadClientIp(row, payload = {}) {
+    return normalizeClientIp(
+        row?.client_ip ||
+        payload?.metadata?.client_ip ||
+        payload?.clientIp ||
+        ''
+    );
+}
+
+function buildBlockedLeadSnapshot(row, payload = {}) {
+    const reward = resolveLeadRewardInfo(row, payload);
+    return {
+        sessionId: String(row?.session_id || '').trim(),
+        name: String(row?.name || '').trim(),
+        email: String(row?.email || '').trim(),
+        cpf: String(row?.cpf || '').trim(),
+        phone: String(row?.phone || '').trim(),
+        city: String(row?.city || '').trim(),
+        state: String(row?.state || '').trim(),
+        shippingName: String(row?.shipping_name || payload?.shipping?.name || '').trim(),
+        rewardName: String(reward?.name || '').trim(),
+        txid: resolveLeadCurrentPixTxid(row, payload)
+    };
+}
+
+async function fetchLeadPageviews(sessionId) {
+    if (!SUPABASE_URL || !SUPABASE_SERVICE_KEY) {
+        return { ok: false, reason: 'missing_supabase_config', rows: [] };
+    }
+
+    const cleanSession = String(sessionId || '').trim();
+    if (!cleanSession) {
+        return { ok: false, reason: 'missing_session_id', rows: [] };
+    }
+
+    const url = new URL(`${SUPABASE_URL}/rest/v1/lead_pageviews`);
+    url.searchParams.set('select', 'session_id,page,created_at');
+    url.searchParams.set('session_id', `eq.${cleanSession}`);
+    url.searchParams.set('order', 'created_at.asc');
+
+    const response = await fetchFn(url.toString(), {
+        headers: {
+            apikey: SUPABASE_SERVICE_KEY,
+            Authorization: `Bearer ${SUPABASE_SERVICE_KEY}`,
+            'Content-Type': 'application/json'
+        }
+    });
+
+    if (!response.ok) {
+        const detail = await response.text().catch(() => '');
+        return { ok: false, reason: 'supabase_error', detail, rows: [] };
+    }
+
+    const rows = await response.json().catch(() => []);
+    return { ok: true, rows: Array.isArray(rows) ? rows : [] };
+}
+
 function resolveLeadExportBucket(row, payload) {
     const step = resolveLeadJourneyStep(row, payload);
     const stepLabel = leadJourneyLabel(step);
@@ -1616,6 +1776,216 @@ async function getLeads(req, res) {
     summary.funnel = buildNativeFunnel(summary, pageCounts);
 
     res.status(200).json({ data, summary });
+}
+
+async function getLeadDetail(req, res, sessionIdParam = '') {
+    if (req.method !== 'GET') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    if (!requireAdmin(req, res)) return;
+
+    const sessionId = decodeURIComponent(String(sessionIdParam || '').trim());
+    if (!sessionId) {
+        res.status(400).json({ error: 'Sessao do lead nao informada.' });
+        return;
+    }
+
+    const leadResult = await getLeadBySessionId(sessionId);
+    if (!leadResult?.ok) {
+        res.status(502).json({ error: 'Falha ao buscar lead.', detail: leadResult?.detail || '' });
+        return;
+    }
+
+    const lead = leadResult?.data;
+    if (!lead) {
+        res.status(404).json({ error: 'Lead nao encontrado.' });
+        return;
+    }
+
+    const payload = asObject(lead?.payload);
+    const readable = mapLeadReadable(lead);
+    const reward = resolveLeadRewardInfo(lead, payload);
+    const shipping = resolveLeadShippingInfo(lead, payload);
+    const clientIp = resolveLeadClientIp(lead, payload);
+    const userAgent = String(lead?.user_agent || payload?.metadata?.user_agent || '').trim();
+    const pageviewsResult = await fetchLeadPageviews(sessionId);
+    const blockedResult = clientIp ? await findBlockedIp(clientIp) : { ok: true, blocked: false, entry: null };
+
+    const pageviews = (pageviewsResult?.rows || []).map((row) => {
+        const meta = describeLeadPage(row?.page);
+        return {
+            page: meta.page,
+            label: meta.label,
+            description: meta.description,
+            createdAt: toIsoDate(row?.created_at) || row?.created_at || null
+        };
+    });
+
+    const detail = {
+        sessionId: String(lead?.session_id || '').trim(),
+        readable,
+        customer: {
+            name: String(lead?.name || '').trim(),
+            email: String(lead?.email || '').trim(),
+            cpf: String(lead?.cpf || '').trim(),
+            phone: String(lead?.phone || '').trim()
+        },
+        address: {
+            cep: String(lead?.cep || '').trim(),
+            addressLine: String(lead?.address_line || '').trim(),
+            number: String(lead?.number || '').trim(),
+            complement: String(lead?.complement || '').trim(),
+            neighborhood: String(lead?.neighborhood || '').trim(),
+            city: String(lead?.city || '').trim(),
+            state: String(lead?.state || '').trim(),
+            reference: String(lead?.reference || '').trim()
+        },
+        tracking: {
+            utmSource: String(lead?.utm_source || payload?.utm?.utm_source || payload?.utm_source || '').trim(),
+            utmMedium: String(lead?.utm_medium || payload?.utm?.utm_medium || payload?.utm_medium || '').trim(),
+            utmCampaign: String(lead?.utm_campaign || payload?.utm?.utm_campaign || payload?.utm_campaign || '').trim(),
+            utmTerm: String(lead?.utm_term || payload?.utm?.utm_term || payload?.utm_term || '').trim(),
+            utmContent: String(lead?.utm_content || payload?.utm?.utm_content || payload?.utm_content || '').trim(),
+            fbclid: String(lead?.fbclid || payload?.utm?.fbclid || payload?.fbclid || '').trim(),
+            gclid: String(lead?.gclid || payload?.utm?.gclid || payload?.gclid || '').trim(),
+            ttclid: String(lead?.ttclid || payload?.utm?.ttclid || payload?.ttclid || '').trim(),
+            referrer: String(lead?.referrer || payload?.utm?.referrer || payload?.referrer || '').trim(),
+            landingPage: String(lead?.landing_page || payload?.utm?.landing_page || payload?.landing_page || '').trim(),
+            sourceUrl: String(lead?.source_url || payload?.sourceUrl || '').trim()
+        },
+        device: {
+            clientIp,
+            userAgent,
+            summary: summarizeUserAgent(userAgent)
+        },
+        payment: {
+            gateway: readable?.gateway || 'ativushub',
+            gatewayLabel: readable?.gateway_label || gatewayLabel(readable?.gateway || 'ativushub'),
+            status: readable?.status_funil || '-',
+            event: readable?.evento || '-',
+            pixTxid: resolveLeadCurrentPixTxid(lead, payload),
+            pixStatusRaw: resolveLeadCurrentPixStatus(lead, payload),
+            amount: Number.isFinite(Number(lead?.pix_amount)) ? Number(lead.pix_amount) : null,
+            createdAt: toIsoDate(lead?.created_at) || lead?.created_at || null,
+            updatedAt: toIsoDate(lead?.updated_at) || lead?.updated_at || null,
+            pixCreatedAt: toIsoDate(payload?.pixCreatedAt) || payload?.pixCreatedAt || null,
+            pixPaidAt: toIsoDate(payload?.pixPaidAt) || payload?.pixPaidAt || null,
+            pixRefundedAt: toIsoDate(payload?.pixRefundedAt) || payload?.pixRefundedAt || null,
+            pixRefusedAt: toIsoDate(payload?.pixRefusedAt) || payload?.pixRefusedAt || null
+        },
+        shipping,
+        reward,
+        bump: {
+            selected: lead?.bump_selected === true,
+            price: Number.isFinite(Number(lead?.bump_price)) ? Number(lead.bump_price) : null
+        },
+        pageviews,
+        block: {
+            blocked: blockedResult?.blocked === true,
+            entry: blockedResult?.entry || null
+        },
+        payload
+    };
+
+    res.status(200).json({ ok: true, data: detail });
+}
+
+async function ipBlacklist(req, res) {
+    if (!requireAdmin(req, res)) return;
+
+    if (req.method === 'GET') {
+        const result = await getIpBlacklist({ force: true });
+        if (!result?.ok) {
+            res.status(502).json({ error: 'Falha ao buscar blacklist de IP.', detail: result?.detail || '' });
+            return;
+        }
+
+        res.status(200).json({ ok: true, entries: result.entries || [] });
+        return;
+    }
+
+    if (req.method === 'POST') {
+        let body = {};
+        try {
+            body = typeof req.body === 'string' ? JSON.parse(req.body || '{}') : req.body || {};
+        } catch (_error) {
+            res.status(400).json({ error: 'JSON invalido.' });
+            return;
+        }
+
+        const sessionId = String(body?.sessionId || '').trim();
+        const providedIp = normalizeClientIp(body?.ip || '');
+        let lead = null;
+        let payload = {};
+        let resolvedIp = providedIp;
+
+        if (sessionId) {
+            const leadResult = await getLeadBySessionId(sessionId);
+            if (!leadResult?.ok) {
+                res.status(502).json({ error: 'Falha ao buscar lead para bloqueio.', detail: leadResult?.detail || '' });
+                return;
+            }
+            lead = leadResult?.data || null;
+            if (!lead) {
+                res.status(404).json({ error: 'Lead nao encontrado para bloqueio.' });
+                return;
+            }
+
+            payload = asObject(lead?.payload);
+            const leadIp = resolveLeadClientIp(lead, payload);
+            if (providedIp && leadIp && providedIp !== leadIp) {
+                res.status(409).json({ error: 'O IP informado nao corresponde ao IP salvo neste lead.' });
+                return;
+            }
+            resolvedIp = leadIp || providedIp;
+        }
+
+        if (!resolvedIp) {
+            res.status(400).json({ error: 'Nenhum IP valido foi encontrado para bloqueio.' });
+            return;
+        }
+
+        const result = await addBlockedIp({
+            ip: resolvedIp,
+            reason: body?.reason || 'Bloqueio manual via admin',
+            sessionId: lead?.session_id || sessionId,
+            lead: lead ? buildBlockedLeadSnapshot(lead, payload) : {
+                sessionId,
+                name: String(body?.name || '').trim(),
+                email: String(body?.email || '').trim(),
+                cpf: String(body?.cpf || '').trim(),
+                phone: String(body?.phone || '').trim()
+            }
+        });
+
+        if (!result?.ok) {
+            res.status(502).json({ error: 'Falha ao bloquear IP.', detail: result?.detail || '' });
+            return;
+        }
+
+        res.status(200).json({ ok: true, ip: resolvedIp, entries: result.entries || [] });
+        return;
+    }
+
+    if (req.method === 'DELETE') {
+        const ip = normalizeClientIp(req.query?.ip || req.body?.ip || '');
+        if (!ip) {
+            res.status(400).json({ error: 'IP invalido para remocao.' });
+            return;
+        }
+
+        const result = await removeBlockedIp(ip);
+        if (!result?.ok) {
+            res.status(502).json({ error: 'Falha ao remover IP da blacklist.', detail: result?.detail || '' });
+            return;
+        }
+
+        res.status(200).json({ ok: true, ip, entries: result.entries || [] });
+        return;
+    }
+
+    res.status(405).json({ error: 'Method not allowed' });
 }
 
 async function exportLeads(req, res) {
@@ -2652,6 +3022,11 @@ module.exports = async (req, res) => {
         route = 'login';
     }
 
+    if (route.startsWith('leads/') && route !== 'leads/export') {
+        const sessionId = route.slice('leads/'.length);
+        return getLeadDetail(req, res, sessionId);
+    }
+
     switch (route) {
         case 'login':
             return login(req, res);
@@ -2663,6 +3038,8 @@ module.exports = async (req, res) => {
             return getLeads(req, res);
         case 'leads/export':
             return exportLeads(req, res);
+        case 'ip-blacklist':
+            return ipBlacklist(req, res);
         case 'pages':
             return getPages(req, res);
         case 'backredirects':

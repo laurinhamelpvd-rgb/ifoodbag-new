@@ -1,4 +1,4 @@
-const { ensureAllowedRequest } = require('../../lib/request-guard');
+const { ensurePublicAccess } = require('../../lib/public-access');
 const { requestTransactionStatus: requestAtivushubStatus } = require('../../lib/ativushub-provider');
 const { requestTransactionById: requestGhostspayStatus } = require('../../lib/ghostspay-provider');
 const { requestTransactionById: requestSunizeStatus } = require('../../lib/sunize-provider');
@@ -379,7 +379,7 @@ module.exports = async (req, res) => {
         res.status(405).json({ error: 'Method not allowed' });
         return;
     }
-    if (!ensureAllowedRequest(req, res, { requireSession: true })) {
+    if (!await ensurePublicAccess(req, res, { requireSession: true })) {
         return;
     }
 

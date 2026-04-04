@@ -1,5 +1,5 @@
 const { upsertLead } = require('../../lib/lead-store');
-const { ensureAllowedRequest } = require('../../lib/request-guard');
+const { ensurePublicAccess } = require('../../lib/public-access');
 
 module.exports = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -8,7 +8,7 @@ module.exports = async (req, res) => {
         res.status(405).json({ error: 'Method not allowed' });
         return;
     }
-    if (!ensureAllowedRequest(req, res, { requireSession: true })) {
+    if (!await ensurePublicAccess(req, res, { requireSession: true })) {
         return;
     }
 

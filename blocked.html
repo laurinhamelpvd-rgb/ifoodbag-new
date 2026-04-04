@@ -1,0 +1,72 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <meta name="robots" content="noindex,nofollow" />
+  <title>Acesso bloqueado</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --bg: #f4f6fb;
+      --card: #ffffff;
+      --text: #1f2738;
+      --muted: #667085;
+      --danger: #b42332;
+      --danger-soft: #fff4f5;
+      --border: #f0d0d6;
+    }
+    * { box-sizing: border-box; }
+    body {
+      margin: 0;
+      min-height: 100vh;
+      font-family: Outfit, system-ui, sans-serif;
+      background:
+        radial-gradient(circle at top, rgba(234, 29, 44, 0.08), transparent 36%),
+        linear-gradient(180deg, var(--bg) 0%, #eef2f8 100%);
+      color: var(--text);
+      display: grid;
+      place-items: center;
+      padding: 20px;
+    }
+    .card {
+      width: min(520px, 100%);
+      background: var(--card);
+      border: 1px solid var(--border);
+      border-radius: 22px;
+      padding: 28px;
+      box-shadow: 0 24px 50px rgba(15, 23, 42, 0.08);
+    }
+    .badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 8px;
+      padding: 8px 12px;
+      border-radius: 999px;
+      background: var(--danger-soft);
+      color: var(--danger);
+      font-weight: 700;
+      font-size: 0.88rem;
+      margin-bottom: 16px;
+    }
+    h1 {
+      margin: 0 0 10px;
+      font-size: clamp(1.8rem, 5vw, 2.4rem);
+      line-height: 1.05;
+    }
+    p {
+      margin: 0;
+      color: var(--muted);
+      line-height: 1.65;
+      font-size: 1rem;
+    }
+  </style>
+</head>
+<body>
+  <main class="card">
+    <span class="badge">Acesso bloqueado</span>
+    <h1>Este acesso foi bloqueado.</h1>
+    <p>Se voce acredita que isso aconteceu por engano, entre em contato com o suporte responsavel por este site.</p>
+  </main>
+</body>
+</html>

@@ -102,13 +102,68 @@
           </div>
           <button id="leads-more" class="btn-secondary" type="button">Carregar mais</button>
         </section>
+
+        <section class="admin-section">
+          <div class="admin-section-header">
+            <h2>Blacklist de IP</h2>
+            <span id="ip-blacklist-count" class="admin-chip">0</span>
+          </div>
+          <p class="admin-muted">Bloqueio exato por IP. Remova quando quiser. Redes compartilhadas podem afetar mais de uma pessoa.</p>
+          <div class="admin-table-wrap">
+            <table class="admin-table">
+              <thead>
+                <tr>
+                  <th>IP</th>
+                  <th>Lead</th>
+                  <th>Email</th>
+                  <th>Produto</th>
+                  <th>Frete</th>
+                  <th>Bloqueado em</th>
+                  <th>Acao</th>
+                </tr>
+              </thead>
+              <tbody id="ip-blacklist-body"></tbody>
+            </table>
+          </div>
+          <div id="ip-blacklist-empty" class="admin-muted admin-blacklist-empty">Nenhum IP bloqueado.</div>
+        </section>
       </div>
     </main>
   </div>
 
+  <div id="lead-detail-modal" class="admin-modal hidden" role="dialog" aria-modal="true" aria-labelledby="lead-detail-title">
+    <div class="admin-modal-card admin-modal-card--lead">
+      <button id="lead-detail-close" class="admin-modal-close" type="button" aria-label="Fechar detalhes do lead">&times;</button>
+      <div class="admin-modal-head">
+        <h3 id="lead-detail-title">Detalhes do lead</h3>
+        <p id="lead-detail-subtitle">Carregando...</p>
+      </div>
+      <div id="lead-detail-meta" class="admin-quiz-meta"></div>
+      <div id="lead-detail-block-state" class="admin-detail-alert hidden"></div>
+      <div class="lead-detail-actions">
+        <button id="lead-detail-block-ip" class="btn-secondary btn-secondary--danger" type="button">Bloquear IP</button>
+        <button id="lead-detail-unblock-ip" class="btn-secondary hidden" type="button">Remover da blacklist</button>
+      </div>
+      <div id="lead-detail-grid" class="lead-detail-grid"></div>
+      <section class="lead-detail-section">
+        <div class="admin-section-header">
+          <h4>Paginas registradas</h4>
+        </div>
+        <p class="admin-muted lead-detail-hint">Mostra as paginas unicas que essa sessao visitou. O tempo em cada pagina nao era salvo no historico antigo.</p>
+        <div id="lead-detail-pages" class="lead-detail-pages"></div>
+      </section>
+      <section class="lead-detail-section">
+        <div class="admin-section-header">
+          <h4>Payload bruto</h4>
+        </div>
+        <pre id="lead-detail-payload" class="lead-detail-payload"></pre>
+      </section>
+    </div>
+  </div>
+
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="/script.js?v=8.9" defer></script>
+  <script src="/script.js?v=9.0" defer></script>
 </body>
 </html>
 

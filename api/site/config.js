@@ -1,4 +1,4 @@
-const { ensureAllowedRequest } = require('../../lib/request-guard');
+const { ensurePublicAccess } = require('../../lib/public-access');
 const { getSettings } = require('../../lib/settings-store');
 
 module.exports = async (req, res) => {
@@ -8,7 +8,7 @@ module.exports = async (req, res) => {
         res.status(405).json({ error: 'Method not allowed' });
         return;
     }
-    if (!ensureAllowedRequest(req, res, { requireSession: false })) {
+    if (!await ensurePublicAccess(req, res, { requireSession: false })) {
         return;
     }
 

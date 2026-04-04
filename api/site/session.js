@@ -1,4 +1,5 @@
-const { ensureAllowedRequest, issueSessionCookie } = require('../../lib/request-guard');
+const { issueSessionCookie } = require('../../lib/request-guard');
+const { ensurePublicAccess } = require('../../lib/public-access');
 
 module.exports = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
@@ -8,7 +9,7 @@ module.exports = async (req, res) => {
         return;
     }
 
-    if (!ensureAllowedRequest(req, res, { requireSession: false })) {
+    if (!await ensurePublicAccess(req, res, { requireSession: false })) {
         return;
     }
 

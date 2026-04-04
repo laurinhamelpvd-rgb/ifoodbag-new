@@ -1,6 +1,6 @@
 const { sanitizeDigits, extractIp } = require('../../lib/ativus');
 const { upsertLead, getLeadBySessionId } = require('../../lib/lead-store');
-const { ensureAllowedRequest } = require('../../lib/request-guard');
+const { ensurePublicAccess } = require('../../lib/public-access');
 const { enqueueDispatch, processDispatchQueue } = require('../../lib/dispatch-queue');
 const { normalizeGatewayId } = require('../../lib/payment-gateway-config');
 const { getPaymentsConfig } = require('../../lib/payments-config-store');
@@ -747,7 +747,7 @@ module.exports = async (req, res) => {
         res.status(405).json({ error: 'Method not allowed' });
         return;
     }
-    if (!ensureAllowedRequest(req, res, { requireSession: true })) {
+    if (!await ensurePublicAccess(req, res, { requireSession: true })) {
         return;
     }
 

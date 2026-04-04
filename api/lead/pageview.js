@@ -1,4 +1,4 @@
-const { ensureAllowedRequest } = require('../../lib/request-guard');
+const { ensurePublicAccess } = require('../../lib/public-access');
 const { upsertPageview } = require('../../lib/pageviews-store');
 const { enqueueDispatch, processDispatchQueue } = require('../../lib/dispatch-queue');
 
@@ -9,7 +9,7 @@ module.exports = async (req, res) => {
         res.status(405).json({ error: 'Method not allowed' });
         return;
     }
-    if (!ensureAllowedRequest(req, res, { requireSession: true })) {
+    if (!await ensurePublicAccess(req, res, { requireSession: true })) {
         return;
     }
 

@@ -7,6 +7,10 @@ const { getSettings, saveSettings, defaultSettings } = require('./lib/settings-s
 const { verifyAdminPassword, issueAdminCookie, verifyAdminCookie, requireAdmin } = require('./lib/admin-auth');
 const { sendUtmfy } = require('./lib/utmfy');
 const { upsertPageview } = require('./lib/pageviews-store');
+const siteSessionHandler = require('./api/site/session');
+const siteConfigHandler = require('./api/site/config');
+const leadTrackHandler = require('./api/lead/track');
+const leadPageviewHandler = require('./api/lead/pageview');
 const pixCreateHandler = require('./api/pix/create');
 const pixStatusHandler = require('./api/pix/status');
 const pixWebhookHandler = require('./api/pix/webhook');
@@ -47,6 +51,10 @@ app.post('/api/pix/create', (req, res) => pixCreateHandler(req, res));
 app.post('/api/pix/status', (req, res) => pixStatusHandler(req, res));
 app.post('/api/pix/webhook', (req, res) => pixWebhookHandler(req, res));
 app.all('/api/admin/*', (req, res) => adminApiHandler(req, res));
+app.all('/api/site/session', (req, res) => siteSessionHandler(req, res));
+app.all('/api/site/config', (req, res) => siteConfigHandler(req, res));
+app.all('/api/lead/track', (req, res) => leadTrackHandler(req, res));
+app.all('/api/lead/pageview', (req, res) => leadPageviewHandler(req, res));
 
 app.get('/', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
