@@ -1775,7 +1775,7 @@ function initCheckout() {
             return;
         }
         btnFinish.textContent = hasShipping
-            ? 'Finalizar pedido'
+            ? 'Receber minha Bag agora'
             : 'Selecione um frete para continuar';
     };
 
