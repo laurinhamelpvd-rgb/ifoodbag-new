@@ -1,128 +1,118 @@
 ---
 name: paradise-pix
-description: Integrar a API PIX da Paradise em sites, SaaS, ofertas e checkouts proprios com criacao e consulta de transacoes, order bump, split, refund, webhooks, tracking UTM e reconciliacao de status. Usar quando o usuario pedir implementacao, correcao, migracao, auditoria ou debug de pagamentos Paradise com foco em confirmacao confiavel de compra.
+description: Integrar a API PIX da Paradise em sites, SaaS, ofertas e checkouts proprios com criacao e consulta de transacoes, seller, order bump, split, refund, webhooks, tracking UTM e sincronizacao com UTMify. Usar quando o usuario pedir implementacao, correcao, migracao, auditoria ou debug de pagamentos Paradise com foco em confirmacao confiavel de compra, reconciliacao de status e atribuicao de marketing.
 ---
 
-# Paradise PIX Integration
+# Paradise PIX
 
 ## Objetivo
 
-Atuar como especialista em integracao da API Paradise para fluxos de pagamento PIX confiaveis ponta a ponta:
-- criar transacao com payload valido e rastreavel
-- exibir QR Code/copia e cola no checkout
+Atuar como especialista em integracao Paradise para fluxos PIX confiaveis ponta a ponta:
+- criar cobranca com payload valido e rastreavel
+- exibir QR code e copia-e-cola sem expor segredos
 - confirmar compra por webhook com idempotencia
-- reconciliar status por consulta quando houver atraso ou divergencia
-- operar estorno com seguranca
+- reconciliar divergencias por consulta
+- estornar com seguranca
+- sincronizar status e tracking com UTMify e pixels quando o projeto exigir
 
-Nao inventar campos, headers de assinatura ou status fora da documentacao recebida.
+Nao inventar campos, headers de assinatura ou regras de status fora da documentacao recebida. Quando um mapeamento para UTMify nao estiver explicitamente descrito pela Paradise, tratar como inferencia operacional e deixar isso claro.
 
 ## Fluxo padrao de implementacao
 
-1. Mapear o cenario tecnico.
-- Identificar se o projeto e site, oferta one-page, checkout proprio ou SaaS multi-tenant.
-- Definir entidade de pedido/transacao e chave de correlacao interna.
+1. Confirmar arquitetura e modelo de pedido.
+- Identificar se o projeto e LP, oferta, checkout proprio, API ou SaaS multi-tenant.
+- Definir `order_id` interno, `reference` unico, persistencia de status e correlacao por tenant.
 
-2. Configurar autenticacao no backend.
-- Usar `X-API-Key` em todas as chamadas para `https://multi.paradisepags.com`.
-- Nunca expor Secret Key no frontend.
-- Isolar segredo por tenant em SaaS.
+2. Validar credenciais e conta.
+- Usar `X-API-Key` apenas no backend.
+- Validar conectividade e conta com `GET /api/v1/seller.php` antes de debug mais profundo.
+- Isolar credencial por tenant e ambiente.
 
-3. Implementar criacao de transacao.
+3. Implementar criacao da transacao PIX.
 - Chamar `POST /api/v1/transaction.php`.
-- Validar `amount` em centavos e `reference` unico.
-- Enviar `productHash` quando necessario.
+- Validar `amount` em centavos, `reference` unico e `customer` com apenas numeros em `document` e `phone`.
+- Enviar `productHash` por padrao.
 - Usar `source: "api_externa"` somente quando for intencional ignorar `productHash`.
-- Persistir `transaction_id` (id numerico Paradise) e `id` (espelho de `reference`).
+- Incluir `tracking` sempre que houver UTMs/src/sck.
+- Persistir `transaction_id` e `id` retornado pela Paradise.
 
-4. Entregar instrucao de pagamento ao frontend.
-- Expor `qr_code` e/ou `qr_code_base64`.
-- Manter pedido em estado pendente ate confirmacao do status final.
+4. Exibir instrucao de pagamento no frontend.
+- Retornar ao browser apenas `qr_code`, `qr_code_base64`, `expires_at`, valor e identificadores nao sensiveis.
+- Manter pedido local em estado pendente ate confirmacao real.
 
 5. Processar webhook com resiliencia.
-- Receber POST no endpoint do backend.
+- Receber POST em endpoint dedicado.
 - Responder `200` rapido.
-- Processar assincrono com idempotencia por `transaction_id + status`.
-- Aplicar transicao de status sem regressao indevida.
+- Persistir payload bruto.
+- Aplicar idempotencia por `transaction_id + status`.
+- Liberar compra apenas em `approved`.
 
-6. Reconciliar quando necessario.
-- Consultar `GET /api/v1/query.php?action=get_transaction&id={id}` para divergencias.
-- Buscar por referencia com `list_transactions&external_id={reference}` quando for necessario localizar por ID interno.
+6. Reconciliar status.
+- Consultar `GET /api/v1/query.php?action=get_transaction&id={transaction_id}` quando webhook atrasar ou houver divergencia.
+- Buscar por referencia em `list_transactions&external_id={reference}` quando o ID interno nao estiver disponivel.
 
-7. Executar refund de forma segura.
+7. Implementar refund com trilha de auditoria.
 - Chamar `POST /api/v1/refund.php` com `transaction_id`.
-- Permitir estorno apenas para transacao aprovada.
-- Registrar auditoria de quem solicitou, quando solicitou e retorno da API.
+- Permitir estorno apenas para transacoes aprovadas.
+- Registrar motivo, operador e resultado da API.
 
-## Decisao rapida por cenario
+8. Sincronizar analytics e atribuicao.
+- Enviar `waiting_payment` para UTMify ao gerar PIX.
+- Enviar `paid`, `refunded` ou `chargedback` conforme eventos finais.
+- Tratar `failed -> refused` em UTMify como inferencia operacional, refinando com `raw_status` quando necessario.
+- Disparar `Purchase` em Pixel/CAPI somente apos `approved`.
 
-- Site/LP com checkout simples:
-  - Criar endpoint backend para gerar PIX.
-  - Mostrar QR/copia e cola.
-  - Confirmar venda por webhook ou reconciliacao.
+## Escolher referencias por tarefa
 
-- Checkout proprio:
-  - Criar pedido interno primeiro.
-  - Gerar `reference` unico por pedido.
-  - Vincular `order_id` interno ao `transaction_id` Paradise.
-
-- SaaS multi-tenant:
-  - Resolver `X-API-Key` por tenant.
-  - Isolar processamento de webhook por tenant.
-  - Aplicar idempotencia por `tenant + transaction_id + status`.
-
-- Oferta com order bump e split:
-  - Enviar `orderbump` como hash unico ou array de hashes.
-  - Enviar `splits[]` com `recipientId` e `amount` em centavos.
-  - Validar soma e regra de comissao antes de enviar.
+- Ler `references/api-contract.md` para contratos, campos, exemplos e nuances de IDs.
+- Ler `references/playbooks.md` para padroes por arquitetura, modelagem e go-live.
+- Ler `references/webhook-operations.md` para idempotencia, seguranca, reconciliacao e maquina de status.
+- Ler `references/utmify-and-tracking.md` para UTMify, UTMs, Meta/TikTok e mapeamento Paradise -> analytics.
+- Ler `references/testing-and-troubleshooting.md` para cURL, PowerShell, checklist e erros comuns.
+- Ler `references/sources.md` para limites da documentacao e inferencias usadas.
 
 ## Regras obrigatorias
 
 - Base URL: `https://multi.paradisepags.com`.
-- Header obrigatorio: `X-API-Key`.
+- Header obrigatorio em toda chamada server-side: `X-API-Key`.
+- Nunca expor Secret Key no frontend.
 - `amount` sempre em centavos.
-- `reference` sempre unico por pedido.
-- `customer.document` e `customer.phone` apenas numeros.
+- `reference` sempre unico e estavel por pedido.
 - `productHash` e obrigatorio, exceto quando `source` for `api_externa`.
-- Webhook e fonte principal de confirmacao.
-- Considerar pagamento confirmado apenas em `approved`.
-- `refund` apenas para transacao `approved`.
-- Implementar retry com backoff para timeout, erro de rede e `5xx`.
+- Persistir `transaction_id` Paradise e o espelho de `reference`.
+- Webhook e fonte principal de status; polling e fallback.
+- Nao aprovar compra no retorno imediato da criacao.
+- Nao assumir assinatura HMAC de webhook sem documentacao.
+- Persistir tracking localmente no create request; nao depender do webhook para reconstruir UTMs.
+- Aplicar retry com backoff apenas para timeout, rede e `5xx`.
 
-## Mapeamento minimo de status
+## Politica minima de status
 
-- `pending`: cobranca criada e aguardando pagamento.
-- `processing`: pagamento em processamento na adquirente.
-- `under_review`: em analise manual.
-- `approved`: pagamento confirmado.
-- `failed`: falha, cancelamento ou expiracao.
-- `refunded`: valor estornado.
-- `chargeback`: contestacao aberta.
+- `pending`, `processing`, `under_review`: ainda nao pago.
+- `approved`: pago.
+- `failed`: falha terminal, cancelamento ou expiracao.
+- `refunded`: estornado.
+- `chargeback`: contestado.
 
-Normalizar para estados internos do sistema antes de aplicar regras de negocio.
+Se houver sincronizacao com UTMify:
+- `pending`, `processing`, `under_review` -> `waiting_payment`
+- `approved` -> `paid`
+- `refunded` -> `refunded`
+- `chargeback` -> `chargedback`
+- `failed` -> `refused` como inferencia operacional; validar se `raw_status` ou regra interna permite granularidade maior
 
 ## Entregaveis minimos em tarefas reais
 
-- endpoint backend de criacao de transacao PIX
-- endpoint backend de webhook com idempotencia
-- persistencia de `reference`, `transaction_id`, status e historico
+- endpoint backend para criar transacao PIX
+- endpoint backend para webhook com idempotencia
+- persistencia de `reference`, `transaction_id`, tracking e historico de status
 - reconciliacao por consulta de transacao
-- fluxo de estorno com trilha de auditoria
-- comandos de teste para criar, consultar e estornar
+- fluxo seguro de refund
+- sincronizacao com UTMify quando exigida
+- comandos de teste e checklist de validacao
 
-## Escolher referencias por tarefa
+## Integracao com outras skills
 
-- Contrato da API e payloads:
-  - `references/api-contract.md`
-- Playbooks por arquitetura (site, checkout, SaaS, ofertas):
-  - `references/playbooks.md`
-- Operacao de webhook, idempotencia e reconciliacao:
-  - `references/webhook-operations.md`
-- Testes, cURL e troubleshooting:
-  - `references/testing-and-troubleshooting.md`
-- Fonte da especificacao utilizada:
-  - `references/sources.md`
-
-## Uso combinado com outras skills
-
-- Combinar com `meta-pixel-integration` para disparar eventos de conversao (`InitiateCheckout`, `AddPaymentInfo`, `Purchase` apos confirmacao real).
-- Combinar com `utmify-integration` quando o projeto exigir sincronizacao de pedido/status com UTMify.
+- Combinar com `utmify-integration` para contrato completo de pedidos e status na UTMify.
+- Combinar com `meta-pixel-integration` para browser + CAPI mais confiavel.
+- Combinar com `tiktok-pixel-integration` quando o funil exigir sinalizacao no TikTok.

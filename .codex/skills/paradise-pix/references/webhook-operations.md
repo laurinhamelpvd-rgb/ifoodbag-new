@@ -2,46 +2,55 @@
 
 ## Objetivo
 
-Processar mudancas de status com confiabilidade sem aprovar compra em falso positivo.
+Confirmar pagamento com confiabilidade sem aprovar compra em falso positivo.
 
 ## Contrato minimo esperado
 
-Campos comuns no payload:
+Campos minimos para processar:
 - `transaction_id`
 - `external_id`
 - `status`
+
+Campos uteis adicionais:
 - `amount`
 - `payment_method`
 - `timestamp`
-- `customer` (quando enviado pelo provedor)
-- `tracking` (quando enviado na criacao)
+- `customer`
+- `pix_code`
+- `raw_status`
+- `tracking`
 
 ## Pipeline recomendado
 
 1. Receber webhook em endpoint dedicado.
-2. Validar payload minimo (`transaction_id`, `status`).
-3. Persistir payload bruto para auditoria.
-4. Responder HTTP `200` rapidamente.
+2. Validar payload minimo e ambiente.
+3. Persistir payload bruto imediatamente.
+4. Responder HTTP `200` rapido.
 5. Enfileirar processamento assincrono.
-6. Aplicar idempotencia antes de atualizar pedido.
-7. Atualizar transacao/pedido conforme regra de transicao.
-8. Publicar efeitos secundarios apos commit (acesso, notificacoes, analytics).
+6. Aplicar idempotencia antes de efeitos colaterais.
+7. Atualizar transacao e pedido local.
+8. Disparar integracoes derivadas apenas depois do commit:
+- UTMify
+- Pixel/CAPI
+- liberacao de acesso
+- fiscal/notificacoes
 
 ## Idempotencia
 
 Chave recomendada:
+- `paradise:{tenant}:{transaction_id}:{status}`
+
+Fallback quando `tenant` nao existir:
 - `paradise:{transaction_id}:{status}`
 
-Fallback quando necessario:
-- incluir `timestamp` no hash de deduplicacao para diagnostico.
-
 Comportamento:
-- se evento ja processado, nao repetir efeitos colaterais.
-- registrar tentativa duplicada como sucesso idempotente.
+- evento repetido deve ser tratado como sucesso idempotente
+- nunca repetir side effects em webhook duplicado
+- manter historico de duplicatas para diagnostico
 
-## Regras de transicao de status
+## Regras de transicao
 
-Status da doc:
+Estados documentados:
 - `pending`
 - `processing`
 - `under_review`
@@ -51,50 +60,60 @@ Status da doc:
 - `chargeback`
 
 Regra recomendada:
-- liberar pedido somente em `approved`.
-- impedir regressao de estados finais (`refunded`, `chargeback`) para `approved`.
-- manter historico completo de transicoes.
+- `pending -> approved`: aprovar compra
+- `pending -> processing` ou `under_review`: manter aguardando
+- `processing -> approved`: aprovar compra
+- `approved -> refunded`: reverter beneficios conforme politica
+- `approved -> chargeback`: sinalizar fraude/disputa e reverter acesso sensivel
+- `failed`: encerrar como perda terminal
 
-Prioridade sugerida (maior vence em caso de conflito):
-1. `chargeback`
-2. `refunded`
-3. `approved`
-4. `processing` / `under_review`
-5. `pending`
-6. `failed`
+Evitar:
+- regressao de `approved` para `pending`
+- regressao de estados finais para estados intermediarios
 
-Ajustar prioridade conforme regra de negocio local.
+## Seguranca operacional
 
-## Seguranca de webhook
+Como a documentacao recebida nao detalha assinatura:
+- exigir HTTPS
+- usar URL com token secreto por ambiente
+- limitar tamanho do body
+- aplicar rate limit
+- registrar IP/origem para investigacao
 
-Como a doc recebida nao detalha assinatura HMAC:
-- exigir HTTPS.
-- usar URL com token secreto por ambiente.
-- aplicar allowlist/reverse proxy quando possivel.
-- limitar tamanho de body e aplicar rate limit.
-
-Nao assumir header de assinatura nao documentado.
+Nao assumir header HMAC ou assinatura proprietaria sem evidencia.
 
 ## Reconciliacao ativa
 
-Consultar API quando:
-- webhook nao chegar dentro do SLA definido.
-- payload vier incompleto/inconsistente.
-- status local divergir do gateway.
+Consultar a API quando:
+- webhook nao chegar dentro do SLA esperado
+- webhook vier incompleto
+- status local divergir do provider
+- houver duvida sobre o significado de `failed` e for preciso inspecionar `raw_status` ou `attempts_data`
 
-Endpoint de reconciliacao:
+Endpoints uteis:
 - `GET /api/v1/query.php?action=get_transaction&id={transaction_id}`
+- `GET /api/v1/query.php?action=list_transactions&external_id={reference}`
+
+## Politica para UTMify e analytics
+
+- `waiting_payment` deve ser enviado uma vez no create ou no primeiro estado pendente.
+- `processing` e `under_review` normalmente nao exigem novo envio para UTMify se o pedido ja esta em `waiting_payment`.
+- `approved` deve acionar `paid`.
+- `refunded` deve acionar `refunded`.
+- `chargeback` deve acionar `chargedback`.
+- `failed` pode acionar `refused` como inferencia operacional.
 
 ## Observabilidade minima
 
 Metricas:
-- volume de webhook recebido
+- volume de webhooks por status
 - latencia de processamento
-- tempo de confirmacao `pending -> approved`
-- taxa de erro por status
-- divergencias resolvidas por reconciliacao
+- tempo `pending -> approved`
+- taxa de divergencia resolvida por reconciliacao
+- taxa de duplicatas
 
 Alertas:
-- crescimento anormal de `failed`
+- aumento anormal de `failed`
 - pico de `chargeback`
-- fila de webhook acumulada
+- backlog de fila de webhook
+- falhas repetidas de envio para UTMify

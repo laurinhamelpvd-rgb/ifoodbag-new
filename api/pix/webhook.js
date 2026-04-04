@@ -188,8 +188,16 @@ function looksLikeGhostspayWebhook(payload = {}) {
 }
 
 function looksLikeSunizeWebhook(payload = {}) {
+    const hasParadiseMarkers =
+        Object.prototype.hasOwnProperty.call(payload || {}, 'pix_code') ||
+        Object.prototype.hasOwnProperty.call(payload || {}, 'webhook_type') ||
+        Object.prototype.hasOwnProperty.call(payload || {}, 'tracking') ||
+        Object.prototype.hasOwnProperty.call(payload || {}, 'raw_status');
+    if (hasParadiseMarkers) return false;
+
     const hasTx = !!String(payload?.id || payload?.transaction_id || payload?.transactionId || '').trim();
-    const hasStatus = !!String(payload?.status || '').trim();
+    const status = String(payload?.status || '').trim().toUpperCase();
+    const hasStatus = ['PENDING', 'AUTHORIZED', 'FAILED', 'CHARGEBACK', 'IN_DISPUTE'].includes(status);
     const hasPaymentMethod = String(payload?.payment_method || payload?.paymentMethod || '').trim().toUpperCase() === 'PIX';
     const hasExternalId = !!String(payload?.external_id || payload?.externalId || '').trim();
     return hasTx && hasStatus && (hasPaymentMethod || hasExternalId);
@@ -202,8 +210,9 @@ function looksLikeParadiseWebhook(payload = {}) {
     const hasMarker =
         Object.prototype.hasOwnProperty.call(payload || {}, 'pix_code') ||
         Object.prototype.hasOwnProperty.call(payload || {}, 'webhook_type') ||
-        Object.prototype.hasOwnProperty.call(payload || {}, 'tracking');
-    return hasStatus && (hasTx || hasExternal) && (hasMarker || hasTx);
+        Object.prototype.hasOwnProperty.call(payload || {}, 'tracking') ||
+        Object.prototype.hasOwnProperty.call(payload || {}, 'raw_status');
+    return hasStatus && (hasTx || hasExternal) && hasMarker;
 }
 
 function normalizeMoneyToBrl(value) {
@@ -551,8 +560,8 @@ function resolveWebhookGateway(query = {}, body = {}, payments = {}) {
     if (requested === 'sunize' && sunizeEnabled) return 'sunize';
     if (requested === 'ghostspay' && ghostspayEnabled) return 'ghostspay';
     if (requested === 'paradise' && paradiseEnabled) return 'paradise';
-    if (looksLikeSunizeWebhook(body) && sunizeEnabled) return 'sunize';
     if (looksLikeParadiseWebhook(body) && paradiseEnabled) return 'paradise';
+    if (looksLikeSunizeWebhook(body) && sunizeEnabled) return 'sunize';
     if (looksLikeGhostspayWebhook(body) && ghostspayEnabled) return 'ghostspay';
     if (looksLikeAtivusWebhook(body)) return 'ativushub';
 

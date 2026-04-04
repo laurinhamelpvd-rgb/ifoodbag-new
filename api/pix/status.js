@@ -679,11 +679,13 @@ module.exports = async (req, res) => {
                 ? amountFromLead
                 : fallbackLeadAmount;
         const upsellEvent = isUpsellLead(latestLead);
-        const utmifyStatus = nextStatus === 'paid'
-            ? 'paid'
-            : nextStatus === 'refunded'
-                ? 'refunded'
-                : 'refused';
+        const utmifyStatus = gateway === 'paradise'
+            ? mapParadiseStatusToUtmify(statusRaw)
+            : nextStatus === 'paid'
+                ? 'paid'
+                : nextStatus === 'refunded'
+                    ? 'refunded'
+                    : 'refused';
         const eventName = nextStatus === 'paid'
             ? (upsellEvent ? 'upsell_pix_confirmed' : 'pix_confirmed')
             : nextStatus === 'refunded'

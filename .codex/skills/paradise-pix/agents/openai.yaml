@@ -1,4 +1,4 @@
 interface:
   display_name: "Paradise PIX API"
-  short_description: "Integracao PIX Paradise para sites, SaaS, ofertas e checkout"
-  default_prompt: "Use $paradise-pix para implementar, corrigir ou auditar integracoes PIX Paradise com webhook e conciliacao confiavel."
+  short_description: "Integracao Paradise PIX com UTMify e webhook"
+  default_prompt: "Use $paradise-pix para implementar, corrigir ou auditar integracoes Paradise PIX com UTMify e reconciliacao confiavel."

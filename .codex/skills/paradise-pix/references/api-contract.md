@@ -1,10 +1,20 @@
 # Paradise API Contract (PIX)
 
+## Sumario
+
+- Base URL e autenticacao
+- Criar transacao
+- Consultar transacao
+- Seller
+- Refund
+- Webhook
+- Status e erros
+
 ## Base URL e autenticacao
 
 - Base URL: `https://multi.paradisepags.com`
-- Header obrigatorio em todas as chamadas:
-  - `X-API-Key: sk_xxx`
+- Header obrigatorio:
+  - `X-API-Key: sk_sua_chave`
 - Header recomendado:
   - `Content-Type: application/json`
 
@@ -13,20 +23,19 @@ Usar autenticacao apenas no backend.
 ## Criar transacao
 
 - Metodo: `POST /api/v1/transaction.php`
-- Objetivo: gerar cobranca PIX.
-- Metodo de pagamento suportado pela doc recebida: `pix`.
+- Metodo de pagamento suportado pela documentacao recebida: `pix`
 
-Campos principais do body:
+Campos principais:
 - `amount` (integer, obrigatorio): valor em centavos.
-- `description` (string, obrigatorio): nome/produto.
-- `reference` (string, obrigatorio): ID unico do sistema interno.
-- `customer` (object, obrigatorio): dados do comprador.
+- `description` (string, obrigatorio): nome do produto.
+- `reference` (string, obrigatorio): identificador unico do pedido no sistema local.
 - `postback_url` (string, opcional): webhook especifico da transacao.
-- `productHash` (string, obrigatorio por padrao): hash do produto no painel.
+- `productHash` (string, obrigatorio por padrao): hash do produto no painel Paradise.
 - `source` (string, opcional): usar `api_externa` para ignorar validacao de `productHash`.
-- `orderbump` (string|array, opcional): hash ou lista de hashes de order bump.
-- `tracking` (object, opcional): UTMs/src/sck.
-- `splits` (array, opcional): divisao de valor para outros recebedores.
+- `orderbump` (string ou array, opcional): hash unico ou lista de hashes de offers.
+- `tracking` (object, opcional): `utm_*`, `src`, `sck`.
+- `splits` (array, opcional): repasse para outros recebedores.
+- `customer` (object, obrigatorio): dados do comprador.
 
 `customer`:
 - `name` (string, obrigatorio)
@@ -34,50 +43,95 @@ Campos principais do body:
 - `document` (string, obrigatorio, apenas numeros)
 - `phone` (string, obrigatorio, apenas numeros)
 
+`tracking`:
+- `utm_source`
+- `utm_medium`
+- `utm_campaign`
+- `utm_content`
+- `utm_term`
+- `src`
+- `sck`
+
 `splits[]`:
 - `recipientId` (integer, obrigatorio)
 - `amount` (integer, obrigatorio, centavos)
 
+Exemplo minimo:
+
+```json
+{
+  "amount": 1000,
+  "description": "Produto Teste",
+  "reference": "PED-12345",
+  "customer": {
+    "name": "Joao da Silva",
+    "email": "joao@teste.com",
+    "phone": "11999999999",
+    "document": "05531510101"
+  },
+  "tracking": {
+    "utm_source": "FB",
+    "utm_campaign": "CAMPANHA_2|413591587909524",
+    "utm_medium": "CONJUNTO_2|498046723566488",
+    "utm_content": "ANUNCIO_2|504346051220592",
+    "utm_term": "Instagram_Feed",
+    "src": "valor_src_aqui",
+    "sck": "valor_sck_aqui"
+  }
+}
+```
+
 Resposta de sucesso (resumo):
-- `status` (esperado `success`)
-- `transaction_id` (ID numerico interno Paradise)
-- `id` (espelho de `reference`)
-- `qr_code` (payload copia e cola)
-- `qr_code_base64` (imagem base64)
+- `status`
+- `transaction_id`
+- `id`
+- `qr_code`
+- `qr_code_base64`
 - `amount`
 - `acquirer`
 - `attempts`
 - `expires_at`
 
-Nota importante de IDs:
-- A criacao retorna `transaction_id` (interno Paradise) e `id` (seu `reference`).
-- Persistir ambos para rastreabilidade.
+Notas importantes:
+- `transaction_id` e o ID numerico interno Paradise.
+- `id` e o espelho do seu `reference`.
+- Persistir ambos.
+- Se o projeto usa catalogo externo, `source: "api_externa"` evita dependencia de `productHash`.
 
 ## Consultar transacao por ID interno
 
-- Metodo: `GET /api/v1/query.php?action=get_transaction&id={id}`
-- Objetivo: recuperar snapshot detalhado da transacao.
+- Metodo: `GET /api/v1/query.php?action=get_transaction&id={transaction_id}`
 
-Campos comuns na resposta:
+Campos comuns:
 - `id`
-- `external_id` (seu `reference`)
+- `external_id`
 - `status`
 - `amount`
-- `created_at`, `updated_at`
+- `created_at`
+- `updated_at`
+- `acquirer_name`
 - `customer_data`
 - `attempts_data`
 - `amount_in_reais`
 
-## Consultar transacao por referencia (external_id)
+## Consultar transacao por referencia
 
 - Metodo: `GET /api/v1/query.php?action=list_transactions&external_id={reference}`
-- Objetivo: localizar transacao(s) pelo `reference`.
-- Retorno: array, mesmo para 1 resultado.
+- Retorno: array, mesmo quando so existe um registro.
 
-## Consultar dados do vendedor
+Campos comuns por item:
+- `id`
+- `external_id`
+- `status`
+- `amount`
+- `created_at`
+- `updated_at`
+- `amount_in_reais`
+
+## Seller
 
 - Metodo: `GET /api/v1/seller.php`
-- Objetivo: obter dados publicos da conta associada ao `X-API-Key`.
+- Objetivo: confirmar dados publicos da conta associada ao `X-API-Key`.
 
 Campos comuns:
 - `name`
@@ -86,25 +140,35 @@ Campos comuns:
 - `email`
 - `entity_type`
 
-## Solicitar reembolso
+## Refund
 
 - Metodo: `POST /api/v1/refund.php`
 - Body:
-  - `transaction_id` (integer, obrigatorio)
 
-Resposta de sucesso:
-- `success: true`
-- `message`
+```json
+{
+  "transaction_id": 158
+}
+```
 
-Erros comuns documentados:
-- `404` com `"Permissao negada."` para transacao inexistente ou nao pertencente a loja.
-- `422` com `"Apenas transacoes aprovadas podem ser reembolsadas."`.
+Sucesso:
 
-## Webhook (postback)
+```json
+{
+  "success": true,
+  "message": "Reembolso processado com sucesso."
+}
+```
 
-A API envia POST para o endpoint cadastrado quando o status muda.
+Erros relevantes:
+- `404` com `"Permissao negada."`
+- `422` com `"Apenas transacoes aprovadas podem ser reembolsadas."`
 
-Campos observados no payload:
+## Webhook
+
+Paradise envia POST para a URL configurada quando o status muda.
+
+Campos observados:
 - `transaction_id`
 - `external_id`
 - `status`
@@ -115,9 +179,14 @@ Campos observados no payload:
 - `raw_status`
 - `webhook_type`
 - `timestamp`
-- `tracking` (quando enviado na criacao)
+- `tracking`
 
-Status possiveis:
+Observacoes:
+- O exemplo textual recebido tem JSON de `tracking` sem algumas virgulas; tratar os nomes de campos como referencia sem copiar o erro de sintaxe.
+- A documentacao nao informa assinatura criptografica do webhook.
+
+## Status oficiais
+
 - `pending`
 - `approved`
 - `processing`
@@ -130,8 +199,9 @@ Status possiveis:
 
 - `200 OK`: sucesso
 - `400 Bad Request`: payload invalido ou faltando campo
-- `401 Unauthorized`: API key ausente/invalida/conta inativa
+- `401 Unauthorized`: API key ausente, invalida ou conta inativa
 - `404 Not Found`: recurso inexistente
 - `500 Internal Server Error`: erro no provedor
 
-Obs: a documentacao tambem mostra `422` para regra de refund.
+Observacao:
+- O fluxo de refund tambem documenta `422`.
