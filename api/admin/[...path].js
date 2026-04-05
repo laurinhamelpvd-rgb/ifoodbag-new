@@ -230,6 +230,10 @@ const LEADS_SELECT_FIELDS = [
 const SALES_INSIGHTS_SELECT_FIELDS = [
     'last_event',
     'city',
+    'shipping_id',
+    'shipping_name',
+    'bump_selected',
+    'bump_price',
     'utm_term',
     'pix_amount',
     'user_agent',
@@ -1127,18 +1131,40 @@ function resolveSalesDeviceLabel(userAgent = '', payload = {}) {
     return 'PC';
 }
 
-function accumulateSalesBucket(map, key, label, amount = 0) {
+function accumulateSalesBucket(map, key, label, { amount = 0, upsell = false, orderBump = false } = {}) {
     const safeKey = String(key || '').trim();
     if (!safeKey) return;
-    const current = map.get(safeKey) || {
+    const previous = map.get(safeKey) || {};
+    const current = {
         key: safeKey,
-        label: label || safeKey,
         count: 0,
-        amount: 0
+        amount: 0,
+        upsellCount: 0,
+        orderBumpCount: 0,
+        ...previous,
+        label: label || previous.label || safeKey
     };
     current.count += 1;
     current.amount = Number((Number(current.amount || 0) + Number(amount || 0)).toFixed(2));
+    if (upsell) current.upsellCount += 1;
+    if (orderBump) current.orderBumpCount += 1;
     map.set(safeKey, current);
+}
+
+function pickSalesMetricLeader(rows, field) {
+    return rows.reduce((best, row) => {
+        if (!best) return row;
+        const rowValue = Number(row?.[field] || 0);
+        const bestValue = Number(best?.[field] || 0);
+        if (rowValue !== bestValue) return rowValue > bestValue ? row : best;
+        if (Number(row?.amount || 0) !== Number(best?.amount || 0)) {
+            return Number(row?.amount || 0) > Number(best?.amount || 0) ? row : best;
+        }
+        if (Number(row?.count || 0) !== Number(best?.count || 0)) {
+            return Number(row?.count || 0) > Number(best?.count || 0) ? row : best;
+        }
+        return String(row?.label || '').localeCompare(String(best?.label || ''), 'pt-BR') < 0 ? row : best;
+    }, null);
 }
 
 function buildSalesRanking(map, totalPaid = 0, { limit = 10, includeZero = false } = {}) {
@@ -1149,6 +1175,11 @@ function buildSalesRanking(map, totalPaid = 0, { limit = 10, includeZero = false
             label: normalizeSalesLabel(item?.label),
             count: Number(item?.count || 0),
             amount: Number(item?.amount || 0),
+            upsellCount: Number(item?.upsellCount || 0),
+            orderBumpCount: Number(item?.orderBumpCount || 0),
+            avgTicket: Number(item?.count || 0) > 0
+                ? Number((Number(item?.amount || 0) / Number(item?.count || 0)).toFixed(2))
+                : 0,
             share: totalPaid > 0 ? Math.round((Number(item?.count || 0) / totalPaid) * 1000) / 10 : 0
         }));
 
@@ -1158,7 +1189,16 @@ function buildSalesRanking(map, totalPaid = 0, { limit = 10, includeZero = false
         return a.label.localeCompare(b.label, 'pt-BR');
     });
 
-    return rows.slice(0, Math.max(1, Number(limit) || 10));
+    const topUpsell = pickSalesMetricLeader(rows, 'upsellCount');
+    const topOrderBump = pickSalesMetricLeader(rows, 'orderBumpCount');
+    const topUpsellKey = Number(topUpsell?.upsellCount || 0) > 0 ? String(topUpsell?.key || '') : '';
+    const topOrderBumpKey = Number(topOrderBump?.orderBumpCount || 0) > 0 ? String(topOrderBump?.key || '') : '';
+
+    return rows.slice(0, Math.max(1, Number(limit) || 10)).map((row) => ({
+        ...row,
+        isTopUpsell: !!topUpsellKey && String(row?.key || '') === topUpsellKey,
+        isTopOrderBump: !!topOrderBumpKey && String(row?.key || '') === topOrderBumpKey
+    }));
 }
 
 function resolveLeadRewardInfo(row, payload) {
@@ -2265,18 +2305,39 @@ async function getSalesInsights(req, res) {
         totalPaid += 1;
         const amount = Number.isFinite(Number(row?.pix_amount)) ? Number(row.pix_amount) : 0;
         totalRevenue = Number((totalRevenue + amount).toFixed(2));
+        const hasUpsell = Boolean(
+            payload?.upsell?.enabled === true ||
+            String(row?.shipping_id || '').trim().toLowerCase() === 'expresso_1dia' ||
+            /^upsell/.test(String(payload?.sourceStage || '').trim().toLowerCase()) ||
+            /^upsell/.test(String(payload?.stage || '').trim().toLowerCase()) ||
+            /adiantamento|prioridade|expresso/i.test(String(row?.shipping_name || payload?.shipping?.name || ''))
+        );
+        const hasOrderBump = Boolean(
+            row?.bump_selected === true ||
+            Number(row?.bump_price || 0) > 0 ||
+            payload?.bump?.selected === true ||
+            Number(payload?.bump?.price || 0) > 0
+        );
 
         const mapped = mapLeadReadable(row);
         const positioningLabel = normalizeSalesLabel(mapped?.utm_term_label || mapped?.utm_term || row?.utm_term || '', '');
         if (positioningLabel) {
             const positioningKey = positioningLabel.toLowerCase();
-            accumulateSalesBucket(positioningMap, positioningKey, positioningLabel, amount);
+            accumulateSalesBucket(positioningMap, positioningKey, positioningLabel, {
+                amount,
+                upsell: hasUpsell,
+                orderBump: hasOrderBump
+            });
         }
 
         const cityLabel = normalizeCityLabel(row, payload);
         if (cityLabel && cityLabel !== '-') {
             const cityKey = cityLabel.toLowerCase();
-            accumulateSalesBucket(cityMap, cityKey, cityLabel, amount);
+            accumulateSalesBucket(cityMap, cityKey, cityLabel, {
+                amount,
+                upsell: hasUpsell,
+                orderBump: hasOrderBump
+            });
         }
 
         const deviceLabel = resolveSalesDeviceLabel(row?.user_agent, payload);
@@ -2285,7 +2346,11 @@ async function getSalesInsights(req, res) {
             : deviceLabel.toLowerCase() === 'android'
                 ? 'android'
                 : 'pc';
-        accumulateSalesBucket(deviceMap, deviceKey, deviceLabel, amount);
+        accumulateSalesBucket(deviceMap, deviceKey, deviceLabel, {
+            amount,
+            upsell: hasUpsell,
+            orderBump: hasOrderBump
+        });
 
         const eventTime = mapped?.event_time || row?.updated_at || row?.created_at || null;
         const currentTs = lastSaleAt ? Date.parse(lastSaleAt) : 0;

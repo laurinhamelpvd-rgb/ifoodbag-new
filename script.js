@@ -5478,13 +5478,43 @@ function initAdmin() {
         }
     };
 
+    const buildSalesTopTags = (entry) => {
+        const tags = [];
+        if (entry?.isTopUpsell) tags.push('#top 1 em upsell');
+        if (entry?.isTopOrderBump) tags.push('#top 1 em orderbump');
+        return tags;
+    };
+
+    const renderSalesTopTagsHtml = (entry) => {
+        const tags = buildSalesTopTags(entry);
+        if (!tags.length) return '';
+        return `
+            <div class="sales-ranking-item__badges">
+                ${tags.map((tag) => `<span class="sales-ranking-item__tag">${escapeHtml(tag)}</span>`).join('')}
+            </div>
+        `;
+    };
+
     const renderSalesWinner = (strongNode, detailNode, tagNode, entry, emptyLabel = '-') => {
         if (strongNode) strongNode.textContent = entry?.label || emptyLabel;
         if (tagNode) tagNode.textContent = entry?.label || emptyLabel;
         if (detailNode) {
+            const winnerAmount = Number(entry?.amount || 0);
+            const winnerAvgTicket = Number(entry?.avgTicket || 0);
             detailNode.textContent = entry
                 ? `${entry.count || 0} vendas • ${Number(entry.share || 0).toFixed(1)}% • ${formatCurrency(Number(entry.amount || 0))}`
                 : 'Sem vendas ainda';
+            if (entry) {
+                const winnerParts = [
+                    `${entry.count || 0} vendas`,
+                    `${Number(entry.share || 0).toFixed(1)}%`,
+                    formatCurrency(winnerAmount),
+                    `ticket medio ${formatCurrency(winnerAvgTicket)}`
+                ];
+                const topTags = buildSalesTopTags(entry);
+                if (topTags.length) winnerParts.push(topTags.join(' | '));
+                detailNode.textContent = winnerParts.join(' | ');
+            }
         }
     };
 
@@ -5500,7 +5530,9 @@ function initAdmin() {
         container.innerHTML = rows.map((item, index) => {
             const count = Number(item?.count || 0);
             const amount = Number(item?.amount || 0);
+            const avgTicket = Number(item?.avgTicket || 0);
             const share = Number(item?.share || 0);
+            const topTagsHtml = renderSalesTopTagsHtml(item);
             const width = Math.max(6, Math.round((count / max) * 100));
             return `
                 <article class="sales-ranking-item">
@@ -5512,6 +5544,10 @@ function initAdmin() {
                     <div class="sales-ranking-item__meta">
                         <span>${share.toFixed(1)}% da base paga</span>
                         <span>${escapeHtml(formatCurrency(amount))}</span>
+                    </div>
+                    <div class="sales-ranking-item__submeta">
+                        <span class="sales-ranking-item__avg">Ticket medio: ${escapeHtml(formatCurrency(avgTicket))}</span>
+                        ${topTagsHtml}
                     </div>
                     <div class="sales-ranking-bar"><i style="width: ${width}%"></i></div>
                 </article>

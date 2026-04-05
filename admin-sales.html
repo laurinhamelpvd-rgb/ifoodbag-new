@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/style.css?v=3.7" />
+  <link rel="stylesheet" href="/style.css?v=3.8" />
 <script src="/backguard.js?v=1.5"></script>
 </head>
 <body data-page="admin" data-admin="sales">
@@ -69,7 +69,7 @@
           <div class="admin-hero">
             <div class="admin-hero-info">
               <h3>O que mais converte agora</h3>
-              <p>O ranking considera apenas vendas aprovadas e usa os dados que ja estao salvos no lead.</p>
+              <p>O ranking considera apenas vendas aprovadas e usa os dados que ja estao salvos no lead, incluindo ticket medio e liderancas de upsell/order bump.</p>
               <div class="admin-hero-tags">
                 <span class="admin-tag">Ultima venda: <strong id="sales-updated">-</strong></span>
                 <span class="admin-tag">Posicionamento lider: <strong id="sales-top-positioning-label">-</strong></span>
@@ -134,7 +134,7 @@
             <h2>Ranking detalhado</h2>
             <span class="admin-chip">Aprovadas</span>
           </div>
-          <p class="admin-hint">Posicionamento usa `utm_term`. O tipo de aparelho consolida tudo em iPhone, Android ou PC.</p>
+          <p class="admin-hint">Posicionamento usa `utm_term`. O tipo de aparelho consolida tudo em iPhone, Android ou PC. Cada ranking tambem mostra ticket medio e tags de lideranca em upsell/order bump.</p>
 
           <div class="sales-ranking-grid">
             <article class="sales-ranking-card">
@@ -168,6 +168,6 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="/script.js?v=9.3" defer></script>
+  <script src="/script.js?v=9.4" defer></script>
 </body>
 </html>
