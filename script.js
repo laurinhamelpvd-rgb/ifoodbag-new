@@ -4171,33 +4171,51 @@ function initAdmin() {
             const detailText = escapeHtml(formatDetailValue(result?.detail, '-'));
             return `
                 <article class="gateway-test-card${result?.ok ? '' : ' gateway-test-card--error'}">
-                    <div class="gateway-test-card__head">
-                        <div>
-                            <h4>${gatewayLabel}</h4>
-                            <span>${result?.ok ? 'PIX gerado para teste manual' : 'Falha ao gerar PIX de teste'}</span>
+                    <div class="gateway-test-card__top">
+                        <div class="gateway-test-card__title-group">
+                            <span class="gateway-test-card__eyebrow">Gateway de teste</span>
+                            <div class="gateway-test-card__head">
+                                <div>
+                                    <h4>${gatewayLabel}</h4>
+                                    <p class="gateway-test-card__subtitle">${result?.ok ? 'PIX gerado para validacao manual do ambiente.' : 'Falha ao gerar PIX de teste neste gateway.'}</p>
+                                </div>
+                                <span class="admin-chip${result?.ok ? '' : ' admin-chip--danger'}">${result?.ok ? 'Gerado' : 'Falhou'}</span>
+                            </div>
                         </div>
-                        <span class="admin-chip${result?.ok ? '' : ' admin-chip--danger'}">${result?.ok ? 'Gerado' : 'Falhou'}</span>
-                    </div>
-                    <div class="gateway-test-card__meta">
-                        <span>Valor: <strong>${amountText}</strong></span>
-                        <span>Status: <strong>${statusText}</strong></span>
-                    </div>
-                    <div class="gateway-test-card__details">
-                        <span>TXID: <code>${txidText}</code></span>
-                        <span>Referencia: <code>${externalIdText}</code></span>
-                    </div>
-                    ${result?.ok && qrSrc ? `
-                        <div class="gateway-test-card__qr">
-                            <img src="${escapeHtml(qrSrc)}" alt="QR Code ${gatewayLabel}" loading="lazy" />
+                        <div class="gateway-test-card__meta">
+                            <span><small>Valor</small><strong>${amountText}</strong></span>
+                            <span><small>Status bruto</small><strong>${statusText}</strong></span>
                         </div>
-                    ` : ''}
-                    ${paymentCode ? `
+                    </div>
+                    <div class="gateway-test-card__body${result?.ok && qrSrc ? '' : ' gateway-test-card__body--compact'}">
+                        ${result?.ok && qrSrc ? `
+                        <div class="gateway-test-card__qr-block">
+                            <div class="gateway-test-card__qr">
+                                <img src="${escapeHtml(qrSrc)}" alt="QR Code ${gatewayLabel}" loading="lazy" />
+                            </div>
+                            <p class="gateway-test-card__qr-hint">Escaneie este QR no app do banco para validar se o gateway esta aprovando sem aviso.</p>
+                        </div>
+                        ` : ''}
+                        <div class="gateway-test-card__info">
+                            <div class="gateway-test-card__details">
+                                <span>
+                                    <small>TXID</small>
+                                    <code>${txidText}</code>
+                                </span>
+                                <span>
+                                    <small>Referencia</small>
+                                    <code>${externalIdText}</code>
+                                </span>
+                            </div>
+                            ${paymentCode ? `
                         <div class="gateway-test-card__copy">
                             <input type="text" value="${escapeHtml(paymentCode)}" readonly />
                             <button class="btn-secondary gateway-test-copy" type="button" data-gateway-test-copy="${escapeHtml(paymentCode)}">Copiar codigo</button>
                         </div>
-                    ` : ''}
-                    ${!result?.ok ? `<div class="gateway-test-card__error">${detailText}</div>` : ''}
+                            ` : ''}
+                            ${!result?.ok ? `<div class="gateway-test-card__error">${detailText}</div>` : ''}
+                        </div>
+                    </div>
                 </article>
             `;
         }).join('');
