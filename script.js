@@ -4009,6 +4009,7 @@ function initAdmin() {
     let overviewRange = { preset: 'all', from: '', to: '' };
     let currentSettings = null;
     let currentSettingsLoaded = false;
+    let currentSettingsStatus = 'idle';
     let currentSettingsRevision = '';
     let currentLeadDetail = null;
     let currentIpBlacklist = [];
@@ -4197,6 +4198,12 @@ function initAdmin() {
 
     const syncGatewaySwitchState = (input, label) => {
         if (!label) return;
+        if (currentSettingsStatus !== 'loaded') {
+            const loadingText = currentSettingsStatus === 'unavailable' ? 'Indisponivel' : 'Carregando';
+            label.textContent = loadingText;
+            label.classList.remove('is-on');
+            return;
+        }
         const enabled = !!input?.checked;
         label.textContent = enabled ? 'Ligado' : 'Desligado';
         label.classList.toggle('is-on', enabled);
@@ -5242,23 +5249,28 @@ function initAdmin() {
     const loadSettings = async () => {
         currentSettingsLoaded = false;
         currentSettingsRevision = '';
+        currentSettingsStatus = 'loading';
+        syncGatewaySwitches();
         const res = await adminFetch('/api/admin/settings');
         if (!res.ok) {
             const detail = await res.json().catch(() => ({}));
             const errorMessage = detail?.error || 'Nao foi possivel carregar as configuracoes do painel.';
-            const cached = readCachedAdminSettings();
-            if (cached) {
-                applyAdminSettingsToForm(cached);
-                if (saveStatus) saveStatus.textContent = 'Configuracoes em cache exibidas. Recarregue antes de salvar.';
-                showSettingsRetryModal(`${errorMessage} O painel exibiu a ultima configuracao em cache.`);
+            if (currentSettings && Object.keys(currentSettings).length > 0) {
+                currentSettingsStatus = 'loaded';
+                syncGatewaySwitches();
+                if (saveStatus) saveStatus.textContent = 'Nao foi possivel atualizar as configuracoes. O ultimo estado carregado foi mantido.';
+                showSettingsRetryModal(errorMessage);
                 return;
             }
+            currentSettingsStatus = 'unavailable';
+            syncGatewaySwitches();
             if (saveStatus) saveStatus.textContent = errorMessage;
             showSettingsRetryModal(errorMessage);
             return;
         }
         const data = await res.json();
         currentSettingsLoaded = true;
+        currentSettingsStatus = 'loaded';
         currentSettingsRevision = String(data?._meta?.updatedAt || '').trim();
         applyAdminSettingsToForm(data);
         writeCachedAdminSettings(data);
@@ -5280,7 +5292,6 @@ function initAdmin() {
         if (saveStatus) saveStatus.textContent = 'Salvando...';
 
         const payload = {
-            ...(currentSettings || {}),
             _meta: {
                 ...(currentSettings?._meta || {}),
                 baseUpdatedAt: currentSettingsRevision

@@ -2867,57 +2867,101 @@ async function settings(req, res) {
             }
         };
 
-        const bodyPixel = body.pixel && typeof body.pixel === 'object' ? body.pixel : {};
-        const bodyTikTokPixel = body.tiktokPixel && typeof body.tiktokPixel === 'object' ? body.tiktokPixel : {};
+        const hasPixelSection = body.pixel && typeof body.pixel === 'object';
+        const hasTikTokPixelSection = body.tiktokPixel && typeof body.tiktokPixel === 'object';
+        const hasUtmfySection = body.utmfy && typeof body.utmfy === 'object';
+        const hasPushcutSection = body.pushcut && typeof body.pushcut === 'object';
+        const hasPaymentsSection = body.payments && typeof body.payments === 'object';
+        const hasFeaturesSection = body.features && typeof body.features === 'object';
+        const bodyPixel = hasPixelSection ? body.pixel : {};
+        const bodyTikTokPixel = hasTikTokPixelSection ? body.tiktokPixel : {};
         const currentUtmfy = currentSaved?.utmfy || {};
         const currentPushcut = currentSaved?.pushcut || {};
-        const bodyUtmfy = body.utmfy && typeof body.utmfy === 'object' ? body.utmfy : {};
-        const bodyPushcut = body.pushcut && typeof body.pushcut === 'object' ? body.pushcut : {};
+        const bodyUtmfy = hasUtmfySection ? body.utmfy : {};
+        const bodyPushcut = hasPushcutSection ? body.pushcut : {};
 
         const payload = {
             ...defaultSettings,
             ...Object.fromEntries(Object.entries(body || {}).filter(([key]) => key !== '_meta')),
-            pixel: {
-                enabled: !!bodyPixel.enabled,
-                id: String(bodyPixel.id || '').trim(),
-                backupId: String(bodyPixel.backupId || '').trim(),
-                capi: {
-                    ...defaultSettings.pixel.capi,
-                    ...(currentSaved?.pixel?.capi || {}),
-                    ...(bodyPixel?.capi || {}),
-                    enabled: !!bodyPixel?.capi?.enabled,
-                    accessToken: pickSecretInput(bodyPixel?.capi?.accessToken, currentSaved?.pixel?.capi?.accessToken || ''),
-                    backupAccessToken: pickSecretInput(bodyPixel?.capi?.backupAccessToken, currentSaved?.pixel?.capi?.backupAccessToken || ''),
-                    testEventCode: String(bodyPixel?.capi?.testEventCode || '').trim(),
-                    backupTestEventCode: String(bodyPixel?.capi?.backupTestEventCode || '').trim()
+            pixel: hasPixelSection
+                ? {
+                    enabled: !!bodyPixel.enabled,
+                    id: String(bodyPixel.id || '').trim(),
+                    backupId: String(bodyPixel.backupId || '').trim(),
+                    capi: {
+                        ...defaultSettings.pixel.capi,
+                        ...(currentSaved?.pixel?.capi || {}),
+                        ...(bodyPixel?.capi || {}),
+                        enabled: !!bodyPixel?.capi?.enabled,
+                        accessToken: pickSecretInput(bodyPixel?.capi?.accessToken, currentSaved?.pixel?.capi?.accessToken || ''),
+                        backupAccessToken: pickSecretInput(bodyPixel?.capi?.backupAccessToken, currentSaved?.pixel?.capi?.backupAccessToken || ''),
+                        testEventCode: String(bodyPixel?.capi?.testEventCode || '').trim(),
+                        backupTestEventCode: String(bodyPixel?.capi?.backupTestEventCode || '').trim()
+                    },
+                    events: {
+                        ...defaultSettings.pixel.events,
+                        ...(bodyPixel?.events || {})
+                    }
+                }
+                : {
+                    ...defaultSettings.pixel,
+                    ...(currentSaved?.pixel || {}),
+                    capi: {
+                        ...defaultSettings.pixel.capi,
+                        ...(currentSaved?.pixel?.capi || {})
+                    },
+                    events: {
+                        ...defaultSettings.pixel.events,
+                        ...(currentSaved?.pixel?.events || {})
+                    }
                 },
-                events: {
-                    ...defaultSettings.pixel.events,
-                    ...(bodyPixel?.events || {})
+            tiktokPixel: hasTikTokPixelSection
+                ? {
+                    enabled: !!bodyTikTokPixel.enabled,
+                    id: String(bodyTikTokPixel.id || '').trim(),
+                    events: {
+                        ...defaultSettings.tiktokPixel.events,
+                        ...(bodyTikTokPixel?.events || {})
+                    }
                 }
-            },
-            tiktokPixel: {
-                enabled: !!bodyTikTokPixel.enabled,
-                id: String(bodyTikTokPixel.id || '').trim(),
-                events: {
-                    ...defaultSettings.tiktokPixel.events,
-                    ...(bodyTikTokPixel?.events || {})
+                : {
+                    ...defaultSettings.tiktokPixel,
+                    ...(currentSaved?.tiktokPixel || {}),
+                    events: {
+                        ...defaultSettings.tiktokPixel.events,
+                        ...(currentSaved?.tiktokPixel?.events || {})
+                    }
+                },
+            utmfy: hasUtmfySection
+                ? {
+                    ...defaultSettings.utmfy,
+                    ...currentUtmfy,
+                    ...bodyUtmfy,
+                    apiKey: pickSecretInput(bodyUtmfy.apiKey, currentUtmfy.apiKey || '')
                 }
-            },
-            utmfy: {
-                ...defaultSettings.utmfy,
-                ...bodyUtmfy,
-                apiKey: pickSecretInput(bodyUtmfy.apiKey, currentUtmfy.apiKey || '')
-            },
-            pushcut: buildPushcutConfig({
-                ...currentPushcut,
-                ...bodyPushcut
-            }),
-            payments: mergePaymentSettings(currentSaved?.payments || defaultSettings.payments || {}, mergedPaymentsInput),
-            features: {
-                ...defaultSettings.features,
-                ...(body.features || {})
-            }
+                : {
+                    ...defaultSettings.utmfy,
+                    ...currentUtmfy
+                },
+            pushcut: hasPushcutSection
+                ? buildPushcutConfig({
+                    ...currentPushcut,
+                    ...bodyPushcut
+                })
+                : buildPushcutConfig(currentPushcut),
+            payments: hasPaymentsSection
+                ? mergePaymentSettings(currentSaved?.payments || defaultSettings.payments || {}, mergedPaymentsInput)
+                : mergePaymentSettings(currentSaved?.payments || defaultSettings.payments || {}, {}),
+            features: hasFeaturesSection
+                ? {
+                    ...defaultSettings.features,
+                    ...(currentSaved?.features || {}),
+                    ...(body.features || {})
+                }
+                : {
+                    ...defaultSettings.features,
+                    ...(currentSaved?.features || {})
+                }
         };
 
         const result = await saveSettings(payload);

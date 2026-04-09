@@ -275,17 +275,46 @@ app.post('/api/admin/settings', async (req, res) => {
         return;
     }
     const safeBody = Object.fromEntries(Object.entries(req.body || {}).filter(([key]) => key !== '_meta'));
+    const hasPixelSection = safeBody.pixel && typeof safeBody.pixel === 'object';
+    const hasTikTokPixelSection = safeBody.tiktokPixel && typeof safeBody.tiktokPixel === 'object';
+    const hasUtmfySection = safeBody.utmfy && typeof safeBody.utmfy === 'object';
+    const currentSaved = currentState.settings || {};
     const payload = {
         ...defaultSettings,
         ...safeBody,
-        pixel: {
-            ...defaultSettings.pixel,
-            ...(safeBody?.pixel || {}),
-            id: String(safeBody?.pixel?.id || '').trim(),
-            backupId: String(safeBody?.pixel?.backupId || '').trim()
+        pixel: hasPixelSection
+            ? {
+                ...defaultSettings.pixel,
+                ...(currentSaved?.pixel || {}),
+                ...(safeBody?.pixel || {}),
+                id: String(safeBody?.pixel?.id || '').trim(),
+                backupId: String(safeBody?.pixel?.backupId || '').trim()
+            }
+            : {
+                ...defaultSettings.pixel,
+                ...(currentSaved?.pixel || {})
+            },
+        tiktokPixel: hasTikTokPixelSection
+            ? { ...defaultSettings.tiktokPixel, ...(currentSaved?.tiktokPixel || {}), ...(safeBody?.tiktokPixel || {}) }
+            : { ...defaultSettings.tiktokPixel, ...(currentSaved?.tiktokPixel || {}) },
+        utmfy: hasUtmfySection
+            ? { ...defaultSettings.utmfy, ...(currentSaved?.utmfy || {}), ...(safeBody?.utmfy || {}) }
+            : { ...defaultSettings.utmfy, ...(currentSaved?.utmfy || {}) },
+        payments: {
+            ...defaultSettings.payments,
+            ...(currentSaved?.payments || {}),
+            ...(safeBody?.payments || {})
         },
-        tiktokPixel: { ...defaultSettings.tiktokPixel, ...(safeBody?.tiktokPixel || {}) },
-        utmfy: { ...defaultSettings.utmfy, ...(safeBody?.utmfy || {}) }
+        pushcut: {
+            ...defaultSettings.pushcut,
+            ...(currentSaved?.pushcut || {}),
+            ...(safeBody?.pushcut || {})
+        },
+        features: {
+            ...defaultSettings.features,
+            ...(currentSaved?.features || {}),
+            ...(safeBody?.features || {})
+        }
     };
     const result = await saveSettings(payload);
     if (!result.ok) {
