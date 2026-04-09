@@ -126,6 +126,26 @@ function pickText(...values) {
     return '';
 }
 
+function buildLeadRewardSnapshot(payload = {}) {
+    const reward = asObject(payload?.reward);
+    const rewardId = pickText(reward?.id, payload?.rewardId);
+    const rewardName = pickText(reward?.name, reward?.title, payload?.rewardName);
+    const rewardPrice = normalizeMoneyToBrl(
+        reward?.checkoutExtraPrice ??
+        reward?.extraPrice ??
+        reward?.price ??
+        reward?.successDisplayPrice ??
+        payload?.rewardExtraPrice ??
+        0
+    );
+    if (!rewardId && !rewardName && rewardPrice <= 0) return null;
+    return {
+        id: rewardId || 'produto_ifood',
+        name: rewardName || 'Produto iFood',
+        checkoutExtraPrice: rewardPrice
+    };
+}
+
 function looksLikePixCopyPaste(value = '') {
     const text = String(value || '').trim();
     if (!text) return false;
@@ -708,6 +728,7 @@ module.exports = async (req, res) => {
                 ? amountFromLead
                 : fallbackLeadAmount;
         const upsellEvent = isUpsellLead(latestLead);
+        const rewardSnapshot = upsellEvent ? null : buildLeadRewardSnapshot(latestPayload);
         const utmifyStatus = gateway === 'paradise'
             ? mapParadiseStatusToUtmify(statusRaw)
             : nextStatus === 'paid'
@@ -786,6 +807,7 @@ module.exports = async (req, res) => {
                 name: latestLead.shipping_name,
                 price: latestLead.shipping_price
             } : null,
+            reward: rewardSnapshot,
             bump: latestLead && latestLead.bump_selected ? {
                 title: 'Seguro Bag',
                 price: latestLead.bump_price
