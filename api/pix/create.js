@@ -713,6 +713,7 @@ async function findReusablePixBySession({
     if (storedUpsell !== Boolean(upsellEnabled)) return null;
 
     const normalizedReward = resolveReward(storedRewardId || rewardId || 'bag');
+    const rewardExtraPrice = Boolean(upsellEnabled) ? 0 : toBrlAmount(normalizedReward.extraPrice);
 
     let paymentCode = pickText(payload?.pix?.paymentCode, payload.paymentCode);
     let paymentCodeBase64 = pickText(payload?.pix?.paymentCodeBase64, payload.paymentCodeBase64);
@@ -740,7 +741,7 @@ async function findReusablePixBySession({
         externalId,
         rewardId: normalizedReward.id,
         rewardName: normalizedReward.name,
-        rewardExtraPrice: normalizedReward.extraPrice,
+        rewardExtraPrice,
         reused: true
     };
 }
@@ -772,7 +773,7 @@ module.exports = async (req, res) => {
         const value = toBrlAmount(amount);
         const upsellEnabled = Boolean(upsell && upsell.enabled);
         const normalizedReward = resolveReward(rawReward);
-        const rewardExtraPrice = toBrlAmount(normalizedReward.extraPrice);
+        const rewardExtraPrice = upsellEnabled ? 0 : toBrlAmount(normalizedReward.extraPrice);
         const sessionId = String(rawBody?.sessionId || rawBody?.session_id || '').trim();
         const addPaymentInfoEventId = sanitizeEventId(rawBody?.addPaymentInfoEventId || rawBody?.eventId)
             || buildAddPaymentInfoEventId(sessionId);
