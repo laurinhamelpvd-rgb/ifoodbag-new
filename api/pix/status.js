@@ -45,6 +45,7 @@ const {
     isAtomopayPaidStatus,
     isAtomopayRefundedStatus,
     isAtomopayRefusedStatus,
+    isAtomopayChargebackStatus,
     mapAtomopayStatusToUtmify,
     resolveAtomopayPixPayload
 } = require('../../lib/atomopay-status');
@@ -650,7 +651,7 @@ module.exports = async (req, res) => {
             ? 'paid'
             : isAtomopayRefundedStatus(statusRaw)
                 ? 'refunded'
-                : isAtomopayRefusedStatus(statusRaw)
+                : (isAtomopayRefusedStatus(statusRaw) || isAtomopayChargebackStatus(statusRaw))
                     ? 'refused'
                     : mapUtmifyStatusToFrontend(mapped);
         changedAtIso =

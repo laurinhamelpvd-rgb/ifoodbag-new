@@ -57,6 +57,7 @@ const {
     isAtomopayPaidStatus,
     isAtomopayRefundedStatus,
     isAtomopayRefusedStatus,
+    isAtomopayChargebackStatus,
     mapAtomopayStatusToUtmify
 } = require('../../lib/atomopay-status');
 
@@ -452,7 +453,7 @@ function extractGatewayEvent(gateway, body = {}) {
         const utmifyStatus = mapAtomopayStatusToUtmify(statusRaw);
         const isPaid = isAtomopayPaidStatus(statusRaw);
         const isRefunded = isAtomopayRefundedStatus(statusRaw);
-        const isRefused = isAtomopayRefusedStatus(statusRaw);
+        const isRefused = isAtomopayRefusedStatus(statusRaw) || isAtomopayChargebackStatus(statusRaw);
         const amount = getAtomopayAmount(body);
         const tracking = asObject(getAtomopayTracking(body));
         const customer = asObject(getAtomopayCustomer(body));

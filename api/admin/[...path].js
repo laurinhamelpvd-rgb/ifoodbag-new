@@ -70,6 +70,7 @@ const {
     isAtomopayPendingStatus,
     isAtomopayRefundedStatus,
     isAtomopayRefusedStatus,
+    isAtomopayChargebackStatus,
     mapAtomopayStatusToUtmify
 } = require('../../lib/atomopay-status');
 const { enqueueDispatch, processDispatchQueue } = require('../../lib/dispatch-queue');
@@ -799,6 +800,45 @@ function resolveAtomopayCreateResponse(data = {}) {
         status: String(resolved.status || '').trim(),
         externalId: ''
     };
+}
+
+async function hydrateAtomopayCreateResponse(gatewayConfig = {}, txid = '', attempts = 4) {
+    const cleanTxid = String(txid || '').trim();
+    if (!cleanTxid) {
+        return {
+            txid: '',
+            paymentCode: '',
+            paymentCodeBase64: '',
+            paymentQrUrl: '',
+            status: '',
+            externalId: ''
+        };
+    }
+
+    let latest = {
+        txid: cleanTxid,
+        paymentCode: '',
+        paymentCodeBase64: '',
+        paymentQrUrl: '',
+        status: '',
+        externalId: ''
+    };
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const quickStatus = await requestAtomopayStatus({
+            ...gatewayConfig,
+            timeoutMs: Math.max(1200, Math.min(Number(gatewayConfig.timeoutMs || 12000), attempt === 0 ? 3500 : 5000))
+        }, cleanTxid).catch(() => ({ response: { ok: false }, data: {} }));
+        if (quickStatus?.response?.ok) {
+            latest = resolveAtomopayCreateResponse(quickStatus.data || {});
+            if (latest.paymentCode || latest.paymentCodeBase64 || latest.paymentQrUrl) {
+                return latest;
+            }
+        }
+        if (attempt < (attempts - 1)) {
+            await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+        }
+    }
+    return latest;
 }
 
 function pickSecretInput(inputValue, existingValue) {
@@ -3477,20 +3517,14 @@ async function gatewayTestPix(req, res) {
                 }
                 let parsed = resolveAtomopayCreateResponse(data || {});
                 if (parsed.txid && !parsed.paymentCode && !parsed.paymentCodeBase64 && !parsed.paymentQrUrl) {
-                    const quickStatus = await requestAtomopayStatus({
-                        ...gatewayConfig,
-                        timeoutMs: Math.max(1200, Math.min(Number(gatewayConfig.timeoutMs || 12000), 3500))
-                    }, parsed.txid).catch(() => ({ response: { ok: false }, data: {} }));
-                    if (quickStatus?.response?.ok) {
-                        const hydrated = resolveAtomopayCreateResponse(quickStatus.data || {});
-                        parsed = {
-                            ...parsed,
-                            paymentCode: parsed.paymentCode || hydrated.paymentCode,
-                            paymentCodeBase64: parsed.paymentCodeBase64 || hydrated.paymentCodeBase64,
-                            paymentQrUrl: parsed.paymentQrUrl || hydrated.paymentQrUrl,
-                            status: parsed.status || hydrated.status
-                        };
-                    }
+                    const hydrated = await hydrateAtomopayCreateResponse(gatewayConfig, parsed.txid, 4);
+                    parsed = {
+                        ...parsed,
+                        paymentCode: parsed.paymentCode || hydrated.paymentCode,
+                        paymentCodeBase64: parsed.paymentCodeBase64 || hydrated.paymentCodeBase64,
+                        paymentQrUrl: parsed.paymentQrUrl || hydrated.paymentQrUrl,
+                        status: parsed.status || hydrated.status
+                    };
                 }
 
                 return {
@@ -3767,7 +3801,7 @@ async function inspectPixTransaction({ txid, rowGateway, sessionHint, payments }
             utmifyStatus = mapAtomopayStatusToUtmify(status);
             isPaid = isAtomopayPaidStatus(status);
             isRefunded = isAtomopayRefundedStatus(status);
-            isRefused = isAtomopayRefusedStatus(status);
+            isRefused = isAtomopayRefusedStatus(status) || isAtomopayChargebackStatus(status);
             isPending = isAtomopayPendingStatus(status);
             changedAt =
                 toIsoDate(getAtomopayUpdatedAt(data)) ||

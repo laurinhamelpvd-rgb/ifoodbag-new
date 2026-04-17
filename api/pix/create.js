@@ -484,6 +484,39 @@ function resolveAtomopayResponse(data = {}) {
     };
 }
 
+async function hydrateAtomopayVisual(gatewayConfig, txid, attempts = 4) {
+    const cleanTxid = String(txid || '').trim();
+    if (!cleanTxid) {
+        return { paymentCode: '', paymentCodeBase64: '', paymentQrUrl: '', status: '', externalId: '' };
+    }
+
+    let latest = { paymentCode: '', paymentCodeBase64: '', paymentQrUrl: '', status: '', externalId: '' };
+    for (let attempt = 0; attempt < attempts; attempt += 1) {
+        const timeoutMs = Math.max(
+            1200,
+            Math.min(Number(gatewayConfig?.timeoutMs || 12000), attempt === 0 ? 3500 : 5000)
+        );
+        const quickConfig = {
+            ...gatewayConfig,
+            timeoutMs
+        };
+        const { response, data } = await requestAtomopayStatus(quickConfig, cleanTxid).catch(() => ({
+            response: { ok: false },
+            data: {}
+        }));
+        if (response?.ok) {
+            latest = resolveAtomopayResponse(data || {});
+            if (latest.paymentCode || latest.paymentCodeBase64 || latest.paymentQrUrl) {
+                return latest;
+            }
+        }
+        if (attempt < (attempts - 1)) {
+            await new Promise((resolve) => setTimeout(resolve, 350 * (attempt + 1)));
+        }
+    }
+    return latest;
+}
+
 function normalizeStatus(value = '') {
     return String(value || '')
         .trim()
@@ -637,16 +670,7 @@ async function hydratePixVisualByGateway(gateway, gatewayConfig, txid) {
     }
 
     if (gateway === 'atomopay') {
-        const quickConfig = {
-            ...gatewayConfig,
-            timeoutMs: Math.max(1200, Math.min(Number(gatewayConfig?.timeoutMs || 12000), 3500))
-        };
-        const { response, data } = await requestAtomopayStatus(quickConfig, txid).catch(() => ({
-            response: { ok: false },
-            data: {}
-        }));
-        if (response?.ok) return resolveAtomopayResponse(data || {});
-        return { paymentCode: '', paymentCodeBase64: '', paymentQrUrl: '', status: '', externalId: '' };
+        return hydrateAtomopayVisual(gatewayConfig, txid, 4);
     }
 
     return { paymentCode: '', paymentCodeBase64: '', paymentQrUrl: '', status: '', externalId: '' };
@@ -1344,26 +1368,12 @@ module.exports = async (req, res) => {
                 statusRaw = atomopayData.status || getAtomopayStatus(data) || 'pending';
 
                 if (txid && !paymentCode && !paymentCodeBase64 && !paymentQrUrl) {
-                    const quickStatusTimeout = Math.max(
-                        650,
-                        Math.min(Number(gatewayConfig.timeoutMs || 12000), 900)
-                    );
-                    const quickConfig = {
-                        ...gatewayConfig,
-                        timeoutMs: quickStatusTimeout
-                    };
-                    const quickStatus = await requestAtomopayStatus(quickConfig, txid).catch(() => ({
-                        response: { ok: false },
-                        data: {}
-                    }));
-                    if (quickStatus?.response?.ok) {
-                        const fromStatus = resolveAtomopayResponse(quickStatus.data || {});
-                        paymentCode = paymentCode || fromStatus.paymentCode;
-                        paymentCodeBase64 = paymentCodeBase64 || fromStatus.paymentCodeBase64;
-                        paymentQrUrl = paymentQrUrl || fromStatus.paymentQrUrl;
-                        if (!statusRaw || statusRaw === 'waiting_payment' || statusRaw === 'pending') {
-                            statusRaw = fromStatus.status || statusRaw || 'pending';
-                        }
+                    const hydrated = await hydrateAtomopayVisual(gatewayConfig, txid, 4);
+                    paymentCode = paymentCode || hydrated.paymentCode;
+                    paymentCodeBase64 = paymentCodeBase64 || hydrated.paymentCodeBase64;
+                    paymentQrUrl = paymentQrUrl || hydrated.paymentQrUrl;
+                    if (!statusRaw || statusRaw === 'waiting_payment' || statusRaw === 'pending') {
+                        statusRaw = hydrated.status || statusRaw || 'pending';
                     }
                 }
             } else {
