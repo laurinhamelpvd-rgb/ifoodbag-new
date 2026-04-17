@@ -23,6 +23,15 @@ const {
     resolvePostbackUrl: resolveParadisePostbackUrl
 } = require('../../lib/paradise-provider');
 const { getParadiseStatus } = require('../../lib/paradise-status');
+const {
+    requestCreateTransaction: requestAtomopayCreate,
+    requestTransactionById: requestAtomopayStatus,
+    resolvePostbackUrl: resolveAtomopayPostbackUrl
+} = require('../../lib/atomopay-provider');
+const {
+    getAtomopayStatus,
+    resolveAtomopayPixPayload
+} = require('../../lib/atomopay-status');
 
 function resolveGateway(rawBody = {}, payments = {}) {
     const requested = rawBody.gateway || rawBody.paymentGateway || payments.activeGateway;
@@ -33,6 +42,7 @@ function resolveGateway(rawBody = {}, payments = {}) {
         if (gateway === 'ghostspay') return hasGhostspayCredentials(config);
         if (gateway === 'sunize') return hasSunizeCredentials(config);
         if (gateway === 'paradise') return hasParadiseCredentials(config);
+        if (gateway === 'atomopay') return hasAtomopayCredentials(config);
         return false;
     };
 
@@ -47,7 +57,7 @@ function resolveGateway(rawBody = {}, payments = {}) {
 
     const allDisabled = priority.every((gateway) => !isEnabled(gateway));
     if (allDisabled) {
-        const operationalFallback = ['ghostspay', 'sunize', 'paradise'];
+        const operationalFallback = ['ghostspay', 'sunize', 'paradise', 'atomopay'];
         for (const gateway of operationalFallback) {
             if (hasGatewayCredentials(gateway)) return gateway;
         }
@@ -73,6 +83,14 @@ function hasSunizeCredentials(config = {}) {
 
 function hasParadiseCredentials(config = {}) {
     return Boolean(String(config.apiKey || '').trim());
+}
+
+function hasAtomopayCredentials(config = {}) {
+    return Boolean(
+        String(config.apiToken || '').trim() &&
+        String(config.offerHash || '').trim() &&
+        String(config.productHash || '').trim()
+    );
 }
 
 function sanitizeDigits(value = '') {
@@ -124,6 +142,57 @@ function buildSunizeUtmFields(rawBody = {}) {
         ttclid: pickText(rawBody?.utm?.ttclid, rawBody?.ttclid)
     };
     return Object.fromEntries(Object.entries(fields).filter(([, value]) => Boolean(String(value || '').trim())));
+}
+
+function buildAtomopayTrackingFields(rawBody = {}) {
+    const fields = {
+        src: pickText(rawBody?.utm?.src, rawBody?.src),
+        utm_source: pickText(rawBody?.utm?.utm_source, rawBody?.utm_source),
+        utm_medium: pickText(rawBody?.utm?.utm_medium, rawBody?.utm_medium),
+        utm_campaign: pickText(rawBody?.utm?.utm_campaign, rawBody?.utm_campaign),
+        utm_term: pickText(rawBody?.utm?.utm_term, rawBody?.utm_term),
+        utm_content: pickText(rawBody?.utm?.utm_content, rawBody?.utm_content)
+    };
+    return Object.fromEntries(Object.entries(fields).filter(([, value]) => Boolean(String(value || '').trim())));
+}
+
+function resolveAtomopayProductConfig(gatewayConfig = {}, shipping = {}, upsellEnabled = false, upsell = null) {
+    const shippingId = String(shipping?.id || '').trim().toLowerCase();
+    const upsellKind = String(upsell?.kind || '').trim().toLowerCase();
+    const useIof = shippingId === 'taxa_iof_bag' || upsellKind === 'taxa_iof_bag';
+    const useCorreios = shippingId === 'taxa_objeto_grande_correios' || upsellKind === 'taxa_objeto_grande_correios';
+    const useExpresso = shippingId === 'expresso_1dia' || upsellKind === 'expresso_1dia' || (upsellEnabled && upsellKind === 'frete_1dia');
+
+    let offerHash = String(gatewayConfig.offerHash || '').trim();
+    let productHash = String(gatewayConfig.productHash || '').trim();
+    let variant = 'base';
+
+    if (useIof) {
+        offerHash = String(gatewayConfig.iofOfferHash || offerHash).trim();
+        productHash = String(gatewayConfig.iofProductHash || productHash).trim();
+        variant = 'iof';
+    } else if (useCorreios) {
+        offerHash = String(gatewayConfig.correiosOfferHash || offerHash).trim();
+        productHash = String(gatewayConfig.correiosProductHash || productHash).trim();
+        variant = 'correios';
+    } else if (useExpresso) {
+        offerHash = String(gatewayConfig.expressoOfferHash || offerHash).trim();
+        productHash = String(gatewayConfig.expressoProductHash || productHash).trim();
+        variant = 'expresso';
+    }
+
+    return {
+        offerHash,
+        productHash,
+        variant
+    };
+}
+
+function resolveAtomopayItemTitle(shipping = {}, upsellEnabled = false, upsell = null) {
+    if (upsellEnabled) {
+        return pickText(upsell?.title, shipping?.name, 'Pedido iFood Bag - Upsell');
+    }
+    return pickText(shipping?.name, 'Pedido iFood Bag');
 }
 
 function sanitizeEventId(value = '', maxLen = 120) {
@@ -403,6 +472,18 @@ function resolveParadiseResponse(data = {}) {
     };
 }
 
+function resolveAtomopayResponse(data = {}) {
+    const resolved = resolveAtomopayPixPayload(data);
+    return {
+        txid: String(resolved.txid || '').trim(),
+        paymentCode: String(resolved.paymentCode || '').trim(),
+        paymentCodeBase64: String(resolved.paymentCodeBase64 || '').trim(),
+        paymentQrUrl: String(resolved.paymentQrUrl || '').trim(),
+        status: String(resolved.status || '').trim(),
+        externalId: ''
+    };
+}
+
 function normalizeStatus(value = '') {
     return String(value || '')
         .trim()
@@ -552,6 +633,19 @@ async function hydratePixVisualByGateway(gateway, gatewayConfig, txid) {
             data: {}
         }));
         if (response?.ok) return resolveParadiseResponse(data || {});
+        return { paymentCode: '', paymentCodeBase64: '', paymentQrUrl: '', status: '', externalId: '' };
+    }
+
+    if (gateway === 'atomopay') {
+        const quickConfig = {
+            ...gatewayConfig,
+            timeoutMs: Math.max(1200, Math.min(Number(gatewayConfig?.timeoutMs || 12000), 3500))
+        };
+        const { response, data } = await requestAtomopayStatus(quickConfig, txid).catch(() => ({
+            response: { ok: false },
+            data: {}
+        }));
+        if (response?.ok) return resolveAtomopayResponse(data || {});
         return { paymentCode: '', paymentCodeBase64: '', paymentQrUrl: '', status: '', externalId: '' };
     }
 
@@ -1165,6 +1259,110 @@ module.exports = async (req, res) => {
                         paymentQrUrl = paymentQrUrl || fromStatus.paymentQrUrl;
                         if (!statusRaw || statusRaw === 'waiting_payment' || statusRaw === 'pending') {
                             statusRaw = normalizedQuickStatus;
+                        }
+                    }
+                }
+            } else if (gateway === 'atomopay') {
+                const atomopayProduct = resolveAtomopayProductConfig(
+                    gatewayConfig,
+                    normalizedShipping,
+                    upsellEnabled,
+                    upsell
+                );
+                if (!hasAtomopayCredentials({
+                    ...gatewayConfig,
+                    offerHash: atomopayProduct.offerHash,
+                    productHash: atomopayProduct.productHash
+                })) {
+                    createInflightError = new Error('atomopay_missing_credentials');
+                    console.error('[pix] atomopay missing credentials', {
+                        hasApiToken: Boolean(String(gatewayConfig.apiToken || '').trim()),
+                        hasOfferHash: Boolean(String(atomopayProduct.offerHash || '').trim()),
+                        hasProductHash: Boolean(String(atomopayProduct.productHash || '').trim()),
+                        variant: atomopayProduct.variant
+                    });
+                    return res.status(500).json({ error: 'Credenciais AtomoPay nao configuradas.' });
+                }
+
+                const atomopayTracking = buildAtomopayTrackingFields(rawBody);
+                const atomopayCustomer = {
+                    name,
+                    email,
+                    phone_number: phone,
+                    document: cpf
+                };
+                if (street) atomopayCustomer.street_name = street;
+                if (streetNumber) atomopayCustomer.number = streetNumber;
+                if (complement) atomopayCustomer.complement = complement;
+                if (neighborhood) atomopayCustomer.neighborhood = neighborhood;
+                if (city) atomopayCustomer.city = city;
+                if (state) atomopayCustomer.state = state;
+                if (zipCode) atomopayCustomer.zip_code = zipCode;
+
+                const atomopayPayload = {
+                    amount: Math.max(1, Math.round(totalAmount * 100)),
+                    offer_hash: atomopayProduct.offerHash,
+                    payment_method: 'pix',
+                    customer: atomopayCustomer,
+                    cart: [
+                        {
+                            product_hash: atomopayProduct.productHash,
+                            title: resolveAtomopayItemTitle(normalizedShipping, upsellEnabled, upsell),
+                            price: Math.max(1, Math.round(totalAmount * 100)),
+                            quantity: 1,
+                            operation_type: 1,
+                            tangible: false
+                        }
+                    ],
+                    expire_in_days: 2,
+                    transaction_origin: 'api',
+                    postback_url: resolveAtomopayPostbackUrl(req, gatewayConfig)
+                };
+                if (Object.keys(atomopayTracking).length > 0) {
+                    atomopayPayload.tracking = atomopayTracking;
+                }
+
+                ({ response, data } = await requestAtomopayCreate(gatewayConfig, atomopayPayload));
+                if (!response?.ok || data?.success === false) {
+                    createInflightError = new Error('atomopay_create_failed');
+                    console.error('[pix] atomopay create failed', {
+                        status: Number(response?.status || 0),
+                        detail: data?.error || data?.message || data?.status || '',
+                        variant: atomopayProduct.variant
+                    });
+                    return res.status(response?.status || 502).json({
+                        error: 'Falha ao gerar o PIX.',
+                        detail: data
+                    });
+                }
+
+                const atomopayData = resolveAtomopayResponse(data);
+                txid = atomopayData.txid;
+                paymentCode = atomopayData.paymentCode;
+                paymentCodeBase64 = atomopayData.paymentCodeBase64;
+                paymentQrUrl = atomopayData.paymentQrUrl;
+                statusRaw = atomopayData.status || getAtomopayStatus(data) || 'pending';
+
+                if (txid && !paymentCode && !paymentCodeBase64 && !paymentQrUrl) {
+                    const quickStatusTimeout = Math.max(
+                        650,
+                        Math.min(Number(gatewayConfig.timeoutMs || 12000), 900)
+                    );
+                    const quickConfig = {
+                        ...gatewayConfig,
+                        timeoutMs: quickStatusTimeout
+                    };
+                    const quickStatus = await requestAtomopayStatus(quickConfig, txid).catch(() => ({
+                        response: { ok: false },
+                        data: {}
+                    }));
+                    if (quickStatus?.response?.ok) {
+                        const fromStatus = resolveAtomopayResponse(quickStatus.data || {});
+                        paymentCode = paymentCode || fromStatus.paymentCode;
+                        paymentCodeBase64 = paymentCodeBase64 || fromStatus.paymentCodeBase64;
+                        paymentQrUrl = paymentQrUrl || fromStatus.paymentQrUrl;
+                        if (!statusRaw || statusRaw === 'waiting_payment' || statusRaw === 'pending') {
+                            statusRaw = fromStatus.status || statusRaw || 'pending';
                         }
                     }
                 }

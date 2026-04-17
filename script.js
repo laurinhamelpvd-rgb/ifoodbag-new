@@ -3844,9 +3844,22 @@ function initAdmin() {
     const gatewayParadiseOrderbumpHash = document.getElementById('gateway-paradise-orderbump-hash');
     const gatewayParadiseSource = document.getElementById('gateway-paradise-source');
     const gatewayParadiseDescription = document.getElementById('gateway-paradise-description');
+    const gatewayAtomopayEnabled = document.getElementById('gateway-atomopay-enabled');
+    const gatewayAtomopayBaseUrl = document.getElementById('gateway-atomopay-base-url');
+    const gatewayAtomopayApiToken = document.getElementById('gateway-atomopay-api-token');
+    const gatewayAtomopayOfferHash = document.getElementById('gateway-atomopay-offer-hash');
+    const gatewayAtomopayProductHash = document.getElementById('gateway-atomopay-product-hash');
+    const gatewayAtomopayIofOfferHash = document.getElementById('gateway-atomopay-iof-offer-hash');
+    const gatewayAtomopayIofProductHash = document.getElementById('gateway-atomopay-iof-product-hash');
+    const gatewayAtomopayCorreiosOfferHash = document.getElementById('gateway-atomopay-correios-offer-hash');
+    const gatewayAtomopayCorreiosProductHash = document.getElementById('gateway-atomopay-correios-product-hash');
+    const gatewayAtomopayExpressoOfferHash = document.getElementById('gateway-atomopay-expresso-offer-hash');
+    const gatewayAtomopayExpressoProductHash = document.getElementById('gateway-atomopay-expresso-product-hash');
+    const gatewayAtomopayWebhookToken = document.getElementById('gateway-atomopay-webhook-token');
     const gatewayGhostspayState = document.getElementById('gateway-ghostspay-state');
     const gatewaySunizeState = document.getElementById('gateway-sunize-state');
     const gatewayParadiseState = document.getElementById('gateway-paradise-state');
+    const gatewayAtomopayState = document.getElementById('gateway-atomopay-state');
     const gatewayCards = Array.from(document.querySelectorAll('[data-gateway-card]'));
     const gatewayConfigToggles = Array.from(document.querySelectorAll('[data-gateway-config-toggle]'));
     const gatewayTestBtn = document.getElementById('admin-test-gateways');
@@ -3856,6 +3869,7 @@ function initAdmin() {
     const gatewayTestGhostspay = document.getElementById('gateway-test-ghostspay');
     const gatewayTestSunize = document.getElementById('gateway-test-sunize');
     const gatewayTestParadise = document.getElementById('gateway-test-paradise');
+    const gatewayTestAtomopay = document.getElementById('gateway-test-atomopay');
     const gatewayTestGenerate = document.getElementById('gateway-test-generate');
     const gatewayTestReset = document.getElementById('gateway-test-reset');
     const gatewayTestStatus = document.getElementById('gateway-test-status');
@@ -3918,6 +3932,8 @@ function initAdmin() {
     const metricGatewaySunizeDetail = document.getElementById('metric-gateway-sunize-detail');
     const metricGatewayParadiseConv = document.getElementById('metric-gateway-paradise-conv');
     const metricGatewayParadiseDetail = document.getElementById('metric-gateway-paradise-detail');
+    const metricGatewayAtomopayConv = document.getElementById('metric-gateway-atomopay-conv');
+    const metricGatewayAtomopayDetail = document.getElementById('metric-gateway-atomopay-detail');
     const funnelPix = document.getElementById('funnel-pix');
     const funnelFrete = document.getElementById('funnel-frete');
     const funnelCep = document.getElementById('funnel-cep');
@@ -3989,7 +4005,8 @@ function initAdmin() {
         gatewayStats: {
             ghostspay: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
             sunize: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
-            paradise: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 }
+            paradise: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
+            atomopay: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 }
         }
     };
     const funnelPageMeta = {
@@ -4154,7 +4171,19 @@ function initAdmin() {
         gatewayParadiseProductHash ||
         gatewayParadiseOrderbumpHash ||
         gatewayParadiseSource ||
-        gatewayParadiseDescription
+        gatewayParadiseDescription ||
+        gatewayAtomopayEnabled ||
+        gatewayAtomopayBaseUrl ||
+        gatewayAtomopayApiToken ||
+        gatewayAtomopayOfferHash ||
+        gatewayAtomopayProductHash ||
+        gatewayAtomopayIofOfferHash ||
+        gatewayAtomopayIofProductHash ||
+        gatewayAtomopayCorreiosOfferHash ||
+        gatewayAtomopayCorreiosProductHash ||
+        gatewayAtomopayExpressoOfferHash ||
+        gatewayAtomopayExpressoProductHash ||
+        gatewayAtomopayWebhookToken
     );
     const hasFeatureForm = !!featureOrderbump;
     const wantsLeads = !!(leadsBody || metricTotal || metricPix || metricFrete || metricCep);
@@ -4167,6 +4196,7 @@ function initAdmin() {
         if (normalized === 'ghostspay') return 'ghostspay';
         if (normalized === 'sunize') return 'sunize';
         if (normalized === 'paradise') return 'paradise';
+        if (normalized === 'atomopay') return 'atomopay';
         return 'ghostspay';
     };
 
@@ -4175,6 +4205,7 @@ function initAdmin() {
         if (normalized === 'ghostspay') return 'ghostspay';
         if (normalized === 'sunize') return 'sunize';
         if (normalized === 'paradise') return 'paradise';
+        if (normalized === 'atomopay') return 'atomopay';
         return '';
     };
 
@@ -4183,6 +4214,7 @@ function initAdmin() {
         if (normalized === 'ghostspay') return 'GhostsPay';
         if (normalized === 'sunize') return 'Sunize';
         if (normalized === 'paradise') return 'Paradise';
+        if (normalized === 'atomopay') return 'AtomoPay';
         return 'GhostsPay';
     };
 
@@ -4213,6 +4245,7 @@ function initAdmin() {
         syncGatewaySwitchState(gatewayGhostspayEnabled, gatewayGhostspayState);
         syncGatewaySwitchState(gatewaySunizeEnabled, gatewaySunizeState);
         syncGatewaySwitchState(gatewayParadiseEnabled, gatewayParadiseState);
+        syncGatewaySwitchState(gatewayAtomopayEnabled, gatewayAtomopayState);
     };
 
     const setCurrentGatewayCard = (gateway) => {
@@ -4409,6 +4442,7 @@ function initAdmin() {
             const ghostspay = gateways.ghostspay || {};
             const sunize = gateways.sunize || {};
             const paradise = gateways.paradise || {};
+            const atomopay = gateways.atomopay || {};
             const activeGateway = normalizeGatewayKey(payments.activeGateway || 'ghostspay');
 
             if (paymentsActiveGateway) paymentsActiveGateway.value = activeGateway;
@@ -4428,6 +4462,18 @@ function initAdmin() {
             if (gatewayParadiseOrderbumpHash) gatewayParadiseOrderbumpHash.value = paradise.orderbumpHash || '';
             if (gatewayParadiseSource) gatewayParadiseSource.value = paradise.source || '';
             if (gatewayParadiseDescription) gatewayParadiseDescription.value = paradise.description || '';
+            if (gatewayAtomopayEnabled) gatewayAtomopayEnabled.checked = !!atomopay.enabled;
+            if (gatewayAtomopayBaseUrl) gatewayAtomopayBaseUrl.value = atomopay.baseUrl || '';
+            if (gatewayAtomopayApiToken) gatewayAtomopayApiToken.value = atomopay.apiToken || '';
+            if (gatewayAtomopayOfferHash) gatewayAtomopayOfferHash.value = atomopay.offerHash || '';
+            if (gatewayAtomopayProductHash) gatewayAtomopayProductHash.value = atomopay.productHash || '';
+            if (gatewayAtomopayIofOfferHash) gatewayAtomopayIofOfferHash.value = atomopay.iofOfferHash || '';
+            if (gatewayAtomopayIofProductHash) gatewayAtomopayIofProductHash.value = atomopay.iofProductHash || '';
+            if (gatewayAtomopayCorreiosOfferHash) gatewayAtomopayCorreiosOfferHash.value = atomopay.correiosOfferHash || '';
+            if (gatewayAtomopayCorreiosProductHash) gatewayAtomopayCorreiosProductHash.value = atomopay.correiosProductHash || '';
+            if (gatewayAtomopayExpressoOfferHash) gatewayAtomopayExpressoOfferHash.value = atomopay.expressoOfferHash || '';
+            if (gatewayAtomopayExpressoProductHash) gatewayAtomopayExpressoProductHash.value = atomopay.expressoProductHash || '';
+            if (gatewayAtomopayWebhookToken) gatewayAtomopayWebhookToken.value = atomopay.webhookToken || '';
 
             syncGatewaySwitches();
             setCurrentGatewayCard(activeGateway);
@@ -4525,6 +4571,7 @@ function initAdmin() {
         if (gatewayTestGhostspay) gatewayTestGhostspay.checked = gatewayGhostspayEnabled?.checked !== false;
         if (gatewayTestSunize) gatewayTestSunize.checked = gatewaySunizeEnabled?.checked === true;
         if (gatewayTestParadise) gatewayTestParadise.checked = gatewayParadiseEnabled?.checked === true;
+        if (gatewayTestAtomopay) gatewayTestAtomopay.checked = gatewayAtomopayEnabled?.checked === true;
         if (gatewayTestAmount && !String(gatewayTestAmount.value || '').trim()) {
             gatewayTestAmount.value = '19,90';
         }
@@ -4535,6 +4582,7 @@ function initAdmin() {
         if (gatewayTestGhostspay?.checked) gateways.push('ghostspay');
         if (gatewayTestSunize?.checked) gateways.push('sunize');
         if (gatewayTestParadise?.checked) gateways.push('paradise');
+        if (gatewayTestAtomopay?.checked) gateways.push('atomopay');
         return gateways;
     };
 
@@ -5390,6 +5438,21 @@ function initAdmin() {
                         orderbumpHash: gatewayParadiseOrderbumpHash?.value?.trim() || '',
                         source: gatewayParadiseSource?.value?.trim() || '',
                         description: gatewayParadiseDescription?.value?.trim() || ''
+                    },
+                    atomopay: {
+                        ...(currentSettings?.payments?.gateways?.atomopay || {}),
+                        enabled: !!gatewayAtomopayEnabled?.checked,
+                        baseUrl: gatewayAtomopayBaseUrl?.value?.trim() || '',
+                        apiToken: gatewayAtomopayApiToken?.value?.trim() || '',
+                        offerHash: gatewayAtomopayOfferHash?.value?.trim() || '',
+                        productHash: gatewayAtomopayProductHash?.value?.trim() || '',
+                        iofOfferHash: gatewayAtomopayIofOfferHash?.value?.trim() || '',
+                        iofProductHash: gatewayAtomopayIofProductHash?.value?.trim() || '',
+                        correiosOfferHash: gatewayAtomopayCorreiosOfferHash?.value?.trim() || '',
+                        correiosProductHash: gatewayAtomopayCorreiosProductHash?.value?.trim() || '',
+                        expressoOfferHash: gatewayAtomopayExpressoOfferHash?.value?.trim() || '',
+                        expressoProductHash: gatewayAtomopayExpressoProductHash?.value?.trim() || '',
+                        webhookToken: gatewayAtomopayWebhookToken?.value?.trim() || ''
                     }
                 }
             };
@@ -5832,7 +5895,8 @@ function initAdmin() {
         const emptyGatewayStats = () => ({
             ghostspay: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
             sunize: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
-            paradise: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 }
+            paradise: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
+            atomopay: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 }
         });
 
         if (summary && typeof summary === 'object') {
@@ -5857,6 +5921,10 @@ function initAdmin() {
                 paradise: {
                     ...base.paradise,
                     ...(source.paradise || {})
+                },
+                atomopay: {
+                    ...base.atomopay,
+                    ...(source.atomopay || {})
                 }
             };
         } else {
@@ -5922,9 +5990,11 @@ function initAdmin() {
         const ghostStats = metrics.gatewayStats.ghostspay || { pix: 0, paid: 0 };
         const sunizeStats = metrics.gatewayStats.sunize || { pix: 0, paid: 0 };
         const paradiseStats = metrics.gatewayStats.paradise || { pix: 0, paid: 0 };
+        const atomopayStats = metrics.gatewayStats.atomopay || { pix: 0, paid: 0 };
         const ghostConv = ghostStats.pix ? Math.round((Number(ghostStats.paid || 0) / Number(ghostStats.pix || 0)) * 100) : 0;
         const sunizeConv = sunizeStats.pix ? Math.round((Number(sunizeStats.paid || 0) / Number(sunizeStats.pix || 0)) * 100) : 0;
         const paradiseConv = paradiseStats.pix ? Math.round((Number(paradiseStats.paid || 0) / Number(paradiseStats.pix || 0)) * 100) : 0;
+        const atomopayConv = atomopayStats.pix ? Math.round((Number(atomopayStats.paid || 0) / Number(atomopayStats.pix || 0)) * 100) : 0;
 
         if (metricGatewayGhostspayConv) metricGatewayGhostspayConv.textContent = `${ghostConv}%`;
         if (metricGatewayGhostspayDetail) {
@@ -5938,12 +6008,17 @@ function initAdmin() {
         if (metricGatewayParadiseDetail) {
             metricGatewayParadiseDetail.textContent = `${Number(paradiseStats.paid || 0)} pagos / ${Number(paradiseStats.pix || 0)} PIX`;
         }
+        if (metricGatewayAtomopayConv) metricGatewayAtomopayConv.textContent = `${atomopayConv}%`;
+        if (metricGatewayAtomopayDetail) {
+            metricGatewayAtomopayDetail.textContent = `${Number(atomopayStats.paid || 0)} pagos / ${Number(atomopayStats.pix || 0)} PIX`;
+        }
 
         if (metricBestGateway) {
             const options = [
                 { label: 'GhostsPay', conv: ghostConv, paid: Number(ghostStats.paid || 0), pix: Number(ghostStats.pix || 0) },
                 { label: 'Sunize', conv: sunizeConv, paid: Number(sunizeStats.paid || 0), pix: Number(sunizeStats.pix || 0) },
-                { label: 'Paradise', conv: paradiseConv, paid: Number(paradiseStats.paid || 0), pix: Number(paradiseStats.pix || 0) }
+                { label: 'Paradise', conv: paradiseConv, paid: Number(paradiseStats.paid || 0), pix: Number(paradiseStats.pix || 0) },
+                { label: 'AtomoPay', conv: atomopayConv, paid: Number(atomopayStats.paid || 0), pix: Number(atomopayStats.pix || 0) }
             ].filter((item) => item.pix > 0);
             if (!options.length) {
                 metricBestGateway.textContent = '-';
@@ -6523,6 +6598,7 @@ function initAdmin() {
     gatewayGhostspayEnabled?.addEventListener('change', syncGatewaySwitches);
     gatewaySunizeEnabled?.addEventListener('change', syncGatewaySwitches);
     gatewayParadiseEnabled?.addEventListener('change', syncGatewaySwitches);
+    gatewayAtomopayEnabled?.addEventListener('change', syncGatewaySwitches);
     gatewayConfigToggles.forEach((button) => {
         button.addEventListener('click', () => {
             const gateway = button.getAttribute('data-gateway-config-toggle') || 'ghostspay';

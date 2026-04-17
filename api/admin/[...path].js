@@ -24,6 +24,10 @@ const {
     requestTransactionById: requestParadiseStatus
 } = require('../../lib/paradise-provider');
 const {
+    requestCreateTransaction: requestAtomopayCreate,
+    requestTransactionById: requestAtomopayStatus
+} = require('../../lib/atomopay-provider');
+const {
     getGhostspayStatus,
     getGhostspayUpdatedAt,
     getGhostspayAmount,
@@ -56,6 +60,18 @@ const {
     isParadiseRefusedStatus,
     mapParadiseStatusToUtmify
 } = require('../../lib/paradise-status');
+const {
+    getAtomopayStatus,
+    getAtomopayUpdatedAt,
+    getAtomopayAmount,
+    getAtomopayTracking,
+    resolveAtomopayPixPayload,
+    isAtomopayPaidStatus,
+    isAtomopayPendingStatus,
+    isAtomopayRefundedStatus,
+    isAtomopayRefusedStatus,
+    mapAtomopayStatusToUtmify
+} = require('../../lib/atomopay-status');
 const { enqueueDispatch, processDispatchQueue } = require('../../lib/dispatch-queue');
 const {
     getIpBlacklist,
@@ -527,7 +543,7 @@ function normalizeGatewayTestSelection(input) {
     const list = Array.isArray(input) ? input : [input];
     const normalized = list
         .map((value) => String(value || '').trim().toLowerCase())
-        .filter((value) => value === 'ghostspay' || value === 'sunize' || value === 'paradise');
+        .filter((value) => value === 'ghostspay' || value === 'sunize' || value === 'paradise' || value === 'atomopay');
     return Array.from(new Set(normalized));
 }
 
@@ -743,6 +759,48 @@ function resolveParadiseCreateResponse(data = {}) {
     };
 }
 
+function resolveAtomopayProductConfig(gatewayConfig = {}, shippingId = '') {
+    const normalizedShippingId = String(shippingId || '').trim().toLowerCase();
+    if (normalizedShippingId === 'taxa_iof_bag') {
+        return {
+            offerHash: String(gatewayConfig.iofOfferHash || gatewayConfig.offerHash || '').trim(),
+            productHash: String(gatewayConfig.iofProductHash || gatewayConfig.productHash || '').trim(),
+            variant: 'iof'
+        };
+    }
+    if (normalizedShippingId === 'taxa_objeto_grande_correios') {
+        return {
+            offerHash: String(gatewayConfig.correiosOfferHash || gatewayConfig.offerHash || '').trim(),
+            productHash: String(gatewayConfig.correiosProductHash || gatewayConfig.productHash || '').trim(),
+            variant: 'correios'
+        };
+    }
+    if (normalizedShippingId === 'expresso_1dia') {
+        return {
+            offerHash: String(gatewayConfig.expressoOfferHash || gatewayConfig.offerHash || '').trim(),
+            productHash: String(gatewayConfig.expressoProductHash || gatewayConfig.productHash || '').trim(),
+            variant: 'expresso'
+        };
+    }
+    return {
+        offerHash: String(gatewayConfig.offerHash || '').trim(),
+        productHash: String(gatewayConfig.productHash || '').trim(),
+        variant: 'base'
+    };
+}
+
+function resolveAtomopayCreateResponse(data = {}) {
+    const resolved = resolveAtomopayPixPayload(data);
+    return {
+        txid: String(resolved.txid || '').trim(),
+        paymentCode: String(resolved.paymentCode || '').trim(),
+        paymentCodeBase64: String(resolved.paymentCodeBase64 || '').trim(),
+        paymentQrUrl: String(resolved.paymentQrUrl || '').trim(),
+        status: String(resolved.status || '').trim(),
+        externalId: ''
+    };
+}
+
 function pickSecretInput(inputValue, existingValue) {
     const current = String(existingValue || '');
     if (inputValue === undefined || inputValue === null) return current;
@@ -791,6 +849,7 @@ function sanitizeSettingsForAdmin(settingsData = {}) {
     payload.payments.gateways.ghostspay = payload.payments.gateways.ghostspay || {};
     payload.payments.gateways.sunize = payload.payments.gateways.sunize || {};
     payload.payments.gateways.paradise = payload.payments.gateways.paradise || {};
+    payload.payments.gateways.atomopay = payload.payments.gateways.atomopay || {};
 
     payload.utmfy.apiKey = maskSecret(payload.utmfy.apiKey);
 
@@ -801,6 +860,16 @@ function sanitizeSettingsForAdmin(settingsData = {}) {
     payload.payments.gateways.sunize.apiSecret = maskSecret(payload.payments.gateways.sunize.apiSecret);
     payload.payments.gateways.paradise.apiKey = maskSecret(payload.payments.gateways.paradise.apiKey);
     payload.payments.gateways.paradise.productHash = maskSecret(payload.payments.gateways.paradise.productHash);
+    payload.payments.gateways.atomopay.apiToken = maskSecret(payload.payments.gateways.atomopay.apiToken);
+    payload.payments.gateways.atomopay.offerHash = maskSecret(payload.payments.gateways.atomopay.offerHash);
+    payload.payments.gateways.atomopay.productHash = maskSecret(payload.payments.gateways.atomopay.productHash);
+    payload.payments.gateways.atomopay.iofOfferHash = maskSecret(payload.payments.gateways.atomopay.iofOfferHash);
+    payload.payments.gateways.atomopay.iofProductHash = maskSecret(payload.payments.gateways.atomopay.iofProductHash);
+    payload.payments.gateways.atomopay.correiosOfferHash = maskSecret(payload.payments.gateways.atomopay.correiosOfferHash);
+    payload.payments.gateways.atomopay.correiosProductHash = maskSecret(payload.payments.gateways.atomopay.correiosProductHash);
+    payload.payments.gateways.atomopay.expressoOfferHash = maskSecret(payload.payments.gateways.atomopay.expressoOfferHash);
+    payload.payments.gateways.atomopay.expressoProductHash = maskSecret(payload.payments.gateways.atomopay.expressoProductHash);
+    payload.payments.gateways.atomopay.webhookToken = maskSecret(payload.payments.gateways.atomopay.webhookToken);
 
     return payload;
 }
@@ -892,6 +961,7 @@ function resolveLeadGateway(row, payload) {
 }
 
 function gatewayLabel(gateway) {
+    if (gateway === 'atomopay') return 'AtomoPay';
     if (gateway === 'paradise') return 'Paradise';
     if (gateway === 'sunize') return 'Sunize';
     if (gateway === 'ghostspay') return 'GhostsPay';
@@ -2092,6 +2162,16 @@ async function getLeads(req, res) {
                 refunded: 0,
                 refused: 0,
                 pending: 0
+            },
+            atomopay: {
+                gateway: 'atomopay',
+                label: gatewayLabel('atomopay'),
+                leads: 0,
+                pix: 0,
+                paid: 0,
+                refunded: 0,
+                refused: 0,
+                pending: 0
             }
         }
     };
@@ -2137,6 +2217,8 @@ async function getLeads(req, res) {
                     ? 'sunize'
                     : mapped.gateway === 'paradise'
                         ? 'paradise'
+                        : mapped.gateway === 'atomopay'
+                            ? 'atomopay'
                         : '';
             const gatewaySummary = gateway ? summary.gatewayStats[gateway] : null;
             summary.total += 1;
@@ -2191,9 +2273,15 @@ async function getLeads(req, res) {
         label: gatewayLabel('paradise'),
         ...(summary.gatewayStats.paradise || { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 })
     };
+    summary.gatewayStats.atomopay = {
+        gateway: 'atomopay',
+        label: gatewayLabel('atomopay'),
+        ...(summary.gatewayStats.atomopay || { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 })
+    };
     summary.gatewayStats.ghostspay.conversion = gatewayConversionPercent(summary.gatewayStats.ghostspay);
     summary.gatewayStats.sunize.conversion = gatewayConversionPercent(summary.gatewayStats.sunize);
     summary.gatewayStats.paradise.conversion = gatewayConversionPercent(summary.gatewayStats.paradise);
+    summary.gatewayStats.atomopay.conversion = gatewayConversionPercent(summary.gatewayStats.atomopay);
     summary.range = {
         from: range.fromIso || null,
         to: range.toIso || null,
@@ -2832,9 +2920,13 @@ async function settings(req, res) {
         const bodyParadise = bodyGateways.paradise && typeof bodyGateways.paradise === 'object'
             ? bodyGateways.paradise
             : {};
+        const bodyAtomopay = bodyGateways.atomopay && typeof bodyGateways.atomopay === 'object'
+            ? bodyGateways.atomopay
+            : {};
         const currentGhostGateway = currentPayments?.gateways?.ghostspay || {};
         const currentSunizeGateway = currentPayments?.gateways?.sunize || {};
         const currentParadiseGateway = currentPayments?.gateways?.paradise || {};
+        const currentAtomopayGateway = currentPayments?.gateways?.atomopay || {};
         const mergedPaymentsInput = {
             ...(bodyPayments || {}),
             gateways: {
@@ -2863,6 +2955,22 @@ async function settings(req, res) {
                     webhookTokenRequired: bodyParadise.webhookTokenRequired !== undefined
                         ? !!bodyParadise.webhookTokenRequired
                         : currentParadiseGateway.webhookTokenRequired === true
+                },
+                atomopay: {
+                    ...bodyAtomopay,
+                    apiToken: pickSecretInput(bodyAtomopay.apiToken, currentAtomopayGateway.apiToken || ''),
+                    offerHash: pickSecretInput(bodyAtomopay.offerHash, currentAtomopayGateway.offerHash || ''),
+                    productHash: pickSecretInput(bodyAtomopay.productHash, currentAtomopayGateway.productHash || ''),
+                    iofOfferHash: pickSecretInput(bodyAtomopay.iofOfferHash, currentAtomopayGateway.iofOfferHash || ''),
+                    iofProductHash: pickSecretInput(bodyAtomopay.iofProductHash, currentAtomopayGateway.iofProductHash || ''),
+                    correiosOfferHash: pickSecretInput(bodyAtomopay.correiosOfferHash, currentAtomopayGateway.correiosOfferHash || ''),
+                    correiosProductHash: pickSecretInput(bodyAtomopay.correiosProductHash, currentAtomopayGateway.correiosProductHash || ''),
+                    expressoOfferHash: pickSecretInput(bodyAtomopay.expressoOfferHash, currentAtomopayGateway.expressoOfferHash || ''),
+                    expressoProductHash: pickSecretInput(bodyAtomopay.expressoProductHash, currentAtomopayGateway.expressoProductHash || ''),
+                    webhookToken: pickSecretInput(bodyAtomopay.webhookToken, currentAtomopayGateway.webhookToken || ''),
+                    webhookTokenRequired: bodyAtomopay.webhookTokenRequired !== undefined
+                        ? !!bodyAtomopay.webhookTokenRequired
+                        : currentAtomopayGateway.webhookTokenRequired === true
                 }
             }
         };
@@ -3319,6 +3427,84 @@ async function gatewayTestPix(req, res) {
                 };
             }
 
+            if (gateway === 'atomopay') {
+                const atomopayProduct = resolveAtomopayProductConfig(gatewayConfig, '');
+                if (
+                    !String(gatewayConfig.baseUrl || '').trim() ||
+                    !String(gatewayConfig.apiToken || '').trim() ||
+                    !String(atomopayProduct.offerHash || '').trim() ||
+                    !String(atomopayProduct.productHash || '').trim()
+                ) {
+                    return { ...baseResult, detail: 'Credenciais AtomoPay nao configuradas.' };
+                }
+
+                const payload = {
+                    amount: Math.max(1, Math.round(amount * 100)),
+                    offer_hash: atomopayProduct.offerHash,
+                    payment_method: 'pix',
+                    customer: {
+                        name: baseCustomer.name,
+                        email: baseCustomer.email,
+                        phone_number: baseCustomer.phoneDigits,
+                        document: baseCustomer.document
+                    },
+                    cart: [
+                        {
+                            product_hash: atomopayProduct.productHash,
+                            title: 'Teste manual de gateway via admin',
+                            price: Math.max(1, Math.round(amount * 100)),
+                            quantity: 1,
+                            operation_type: 1,
+                            tangible: false
+                        }
+                    ],
+                    expire_in_days: 1,
+                    transaction_origin: 'api',
+                    tracking: {
+                        src: 'admin_gateway_test',
+                        utm_source: 'admin_gateway_test',
+                        utm_medium: 'dashboard',
+                        utm_campaign: testKey
+                    }
+                };
+
+                let { response, data } = await requestAtomopayCreate(gatewayConfig, payload);
+                if (!response?.ok || data?.success === false) {
+                    return {
+                        ...baseResult,
+                        detail: data?.error || data?.message || `HTTP ${response?.status || 0}`
+                    };
+                }
+                let parsed = resolveAtomopayCreateResponse(data || {});
+                if (parsed.txid && !parsed.paymentCode && !parsed.paymentCodeBase64 && !parsed.paymentQrUrl) {
+                    const quickStatus = await requestAtomopayStatus({
+                        ...gatewayConfig,
+                        timeoutMs: Math.max(1200, Math.min(Number(gatewayConfig.timeoutMs || 12000), 3500))
+                    }, parsed.txid).catch(() => ({ response: { ok: false }, data: {} }));
+                    if (quickStatus?.response?.ok) {
+                        const hydrated = resolveAtomopayCreateResponse(quickStatus.data || {});
+                        parsed = {
+                            ...parsed,
+                            paymentCode: parsed.paymentCode || hydrated.paymentCode,
+                            paymentCodeBase64: parsed.paymentCodeBase64 || hydrated.paymentCodeBase64,
+                            paymentQrUrl: parsed.paymentQrUrl || hydrated.paymentQrUrl,
+                            status: parsed.status || hydrated.status
+                        };
+                    }
+                }
+
+                return {
+                    ...baseResult,
+                    ok: true,
+                    txid: parsed.txid,
+                    paymentCode: parsed.paymentCode,
+                    paymentCodeBase64: parsed.paymentCodeBase64,
+                    paymentQrUrl: parsed.paymentQrUrl,
+                    statusRaw: parsed.status || '',
+                    externalId: ''
+                };
+            }
+
             if (!String(gatewayConfig.baseUrl || '').trim() || !String(gatewayConfig.apiKey || '').trim()) {
                 return { ...baseResult, detail: 'Credenciais Paradise nao configuradas.' };
             }
@@ -3423,6 +3609,8 @@ async function inspectPixTransaction({ txid, rowGateway, sessionHint, payments }
             ? 'sunize'
             : rowGateway === 'paradise'
                 ? 'paradise'
+                : rowGateway === 'atomopay'
+                    ? 'atomopay'
                 : '';
 
     if (!gateway) {
@@ -3563,6 +3751,40 @@ async function inspectPixTransaction({ txid, rowGateway, sessionHint, payments }
                 0
             );
             commission = Math.max(0, Number((amount - fee).toFixed(2)));
+        } else if (gateway === 'atomopay') {
+            ({ response, data } = await requestAtomopayStatus(payments?.gateways?.atomopay || {}, txid));
+            if (!response?.ok) {
+                return {
+                    ok: false,
+                    txid,
+                    gateway,
+                    responseStatus: response?.status || 0,
+                    detail: data?.error || data?.message || ''
+                };
+            }
+
+            status = getAtomopayStatus(data);
+            utmifyStatus = mapAtomopayStatusToUtmify(status);
+            isPaid = isAtomopayPaidStatus(status);
+            isRefunded = isAtomopayRefundedStatus(status);
+            isRefused = isAtomopayRefusedStatus(status);
+            isPending = isAtomopayPendingStatus(status);
+            changedAt =
+                toIsoDate(getAtomopayUpdatedAt(data)) ||
+                toIsoDate(data?.paid_at) ||
+                toIsoDate(data?.data?.paid_at) ||
+                new Date().toISOString();
+            const tracking = asObject(getAtomopayTracking(data));
+            sessionIdFallback = String(
+                tracking?.orderId ||
+                tracking?.sessionId ||
+                tracking?.session_id ||
+                sessionIdFallback ||
+                ''
+            ).trim();
+            amount = getAtomopayAmount(data);
+            fee = 0;
+            commission = amount;
         }
     } catch (_error) {
         return {
@@ -3886,7 +4108,8 @@ async function pixReconcile(req, res) {
     const gatewaySummary = {
         ghostspay: { checked: 0, confirmed: 0, pending: 0, refunded: 0, refused: 0, failed: 0 },
         sunize: { checked: 0, confirmed: 0, pending: 0, refunded: 0, refused: 0, failed: 0 },
-        paradise: { checked: 0, confirmed: 0, pending: 0, refunded: 0, refused: 0, failed: 0 }
+        paradise: { checked: 0, confirmed: 0, pending: 0, refunded: 0, refused: 0, failed: 0 },
+        atomopay: { checked: 0, confirmed: 0, pending: 0, refunded: 0, refused: 0, failed: 0 }
     };
 
     const runOne = async ({ txid, gateway: rowGateway, sessionId: sessionHint }) => {
@@ -3896,6 +4119,8 @@ async function pixReconcile(req, res) {
                 ? 'sunize'
                 : rowGateway === 'paradise'
                     ? 'paradise'
+                    : rowGateway === 'atomopay'
+                        ? 'atomopay'
                     : '';
         checked += 1;
         if (gatewaySummary[gateway]) gatewaySummary[gateway].checked += 1;

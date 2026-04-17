@@ -47,6 +47,18 @@ const {
     isParadiseRefusedStatus,
     mapParadiseStatusToUtmify
 } = require('../../lib/paradise-status');
+const {
+    getAtomopayTxid,
+    getAtomopayStatus,
+    getAtomopayUpdatedAt,
+    getAtomopayAmount,
+    getAtomopayTracking,
+    getAtomopayCustomer,
+    isAtomopayPaidStatus,
+    isAtomopayRefundedStatus,
+    isAtomopayRefusedStatus,
+    mapAtomopayStatusToUtmify
+} = require('../../lib/atomopay-status');
 
 function normalizeDate(value) {
     if (!value && value !== 0) return null;
@@ -228,6 +240,14 @@ function looksLikeParadiseWebhook(payload = {}) {
         Object.prototype.hasOwnProperty.call(payload || {}, 'tracking') ||
         Object.prototype.hasOwnProperty.call(payload || {}, 'raw_status');
     return hasStatus && (hasTx || hasExternal) && hasMarker;
+}
+
+function looksLikeAtomopayWebhook(payload = {}) {
+    const hasTx = !!String(payload?.transaction_hash || payload?.transactionHash || payload?.hash || payload?.data?.hash || '').trim();
+    const status = String(payload?.status || payload?.data?.status || '').trim().toLowerCase();
+    const hasStatus = ['pending', 'paid', 'canceled', 'cancelled', 'refunded'].includes(status);
+    const paymentMethod = String(payload?.payment_method || payload?.paymentMethod || payload?.data?.payment_method || '').trim().toLowerCase();
+    return hasTx && hasStatus && (!paymentMethod || paymentMethod === 'pix');
 }
 
 function normalizeMoneyToBrl(value) {
@@ -426,6 +446,81 @@ function extractGatewayEvent(gateway, body = {}) {
         };
     }
 
+    if (gateway === 'atomopay') {
+        const txid = getAtomopayTxid(body);
+        const statusRaw = getAtomopayStatus(body);
+        const utmifyStatus = mapAtomopayStatusToUtmify(statusRaw);
+        const isPaid = isAtomopayPaidStatus(statusRaw);
+        const isRefunded = isAtomopayRefundedStatus(statusRaw);
+        const isRefused = isAtomopayRefusedStatus(statusRaw);
+        const amount = getAtomopayAmount(body);
+        const tracking = asObject(getAtomopayTracking(body));
+        const customer = asObject(getAtomopayCustomer(body));
+        const sessionOrderId = String(
+            tracking?.orderId ||
+            tracking?.sessionId ||
+            tracking?.session_id ||
+            ''
+        ).trim();
+        const statusChangedAt =
+            normalizeDate(getAtomopayUpdatedAt(body)) ||
+            normalizeDate(body?.paid_at) ||
+            normalizeDate(body?.data?.paid_at) ||
+            new Date().toISOString();
+        const pixCreatedAtFromGateway =
+            normalizeDate(body?.created_at) ||
+            normalizeDate(body?.createdAt) ||
+            normalizeDate(body?.data?.created_at) ||
+            normalizeDate(body?.data?.createdAt) ||
+            null;
+        const lastEvent = isPaid ? 'pix_confirmed' : isRefunded ? 'pix_refunded' : isRefused ? 'pix_refused' : 'pix_pending';
+
+        return {
+            gateway,
+            txid,
+            statusRaw,
+            utmifyStatus,
+            isPaid,
+            isRefunded,
+            isRefused,
+            amount,
+            gatewayFee: 0,
+            userCommission: amount,
+            sessionOrderId,
+            statusChangedAt,
+            pixCreatedAtFromGateway,
+            lastEvent,
+            webhookEventId: '',
+            fallbackIdentity: {
+                cpf: String(customer?.document || '').trim(),
+                email: String(customer?.email || '').trim(),
+                phone: String(customer?.phone || customer?.phone_number || '').trim()
+            },
+            fallbackPersonal: {
+                name: String(customer?.name || '').trim(),
+                email: String(customer?.email || '').trim(),
+                cpf: String(customer?.document || '').trim(),
+                phone: String(customer?.phone || customer?.phone_number || '').trim()
+            },
+            fallbackAddress: {
+                street: String(customer?.street_name || '').trim(),
+                neighborhood: String(customer?.neighborhood || '').trim(),
+                city: String(customer?.city || '').trim(),
+                state: String(customer?.state || '').trim(),
+                cep: String(customer?.zip_code || '').trim()
+            },
+            fallbackUtm: {
+                utm_source: String(tracking?.utm_source || '').trim(),
+                utm_medium: String(tracking?.utm_medium || '').trim(),
+                utm_campaign: String(tracking?.utm_campaign || '').trim(),
+                utm_term: String(tracking?.utm_term || '').trim(),
+                utm_content: String(tracking?.utm_content || '').trim(),
+                src: String(tracking?.src || '').trim(),
+                sck: ''
+            }
+        };
+    }
+
     if (gateway === 'ghostspay') {
         const txid = getGhostspayTxid(body);
         const statusRaw = getGhostspayStatus(body);
@@ -532,6 +627,7 @@ function extractGatewayEvent(gateway, body = {}) {
 
 function resolveWebhookGateway(query = {}, body = {}, payments = {}) {
     const requestedRaw = String(query.gateway || query.provider || body.gateway || body.provider || '').trim();
+    if (looksLikeAtomopayWebhook(body)) return 'atomopay';
     if (looksLikeParadiseWebhook(body)) return 'paradise';
     if (looksLikeSunizeWebhook(body)) return 'sunize';
     if (looksLikeGhostspayWebhook(body)) return 'ghostspay';

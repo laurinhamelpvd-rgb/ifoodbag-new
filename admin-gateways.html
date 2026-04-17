@@ -137,6 +137,11 @@
               <strong id="metric-gateway-paradise-conv">0%</strong>
               <em id="metric-gateway-paradise-detail">0 pagos / 0 PIX</em>
             </div>
+            <div class="admin-kpi">
+              <span>AtomoPay</span>
+              <strong id="metric-gateway-atomopay-conv">0%</strong>
+              <em id="metric-gateway-atomopay-detail">0 pagos / 0 PIX</em>
+            </div>
           </div>
 
           <div class="admin-inline-actions">
@@ -159,6 +164,7 @@
                 <option value="ghostspay">GhostsPay</option>
                 <option value="sunize">Sunize</option>
                 <option value="paradise">Paradise</option>
+                <option value="atomopay">AtomoPay</option>
               </select>
               <label for="payments-active-gateway" class="floating-label">Gateway ativo para gerar PIX</label>
             </div>
@@ -279,8 +285,72 @@
                 </div>
               </div>
             </article>
+            <article class="gateway-card" data-gateway-card="atomopay">
+              <header class="gateway-card-header">
+                <div class="gateway-card-heading">
+                  <h3>AtomoPay</h3>
+                  <p>Gateway PIX AtomoPay com oferta/produto base e hashes separados para os upsells.</p>
+                </div>
+                <div class="gateway-card-actions">
+                  <label class="gateway-switch" for="gateway-atomopay-enabled">
+                    <input type="checkbox" id="gateway-atomopay-enabled" />
+                    <span class="gateway-switch-track" aria-hidden="true"></span>
+                    <span class="gateway-switch-text" id="gateway-atomopay-state">Carregando</span>
+                  </label>
+                  <button type="button" class="btn-secondary gateway-config-toggle" data-gateway-config-toggle="atomopay" aria-controls="gateway-config-atomopay" aria-expanded="false">Configurar</button>
+                </div>
+              </header>
+              <div id="gateway-config-atomopay" class="gateway-card-body">
+                <div class="admin-grid gateway-fields-grid">
+                  <div class="input-group">
+                    <input type="text" id="gateway-atomopay-base-url" class="floating-input" placeholder=" " />
+                    <label for="gateway-atomopay-base-url" class="floating-label">AtomoPay Base URL</label>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" id="gateway-atomopay-api-token" class="floating-input" placeholder=" " autocomplete="new-password" />
+                    <label for="gateway-atomopay-api-token" class="floating-label">AtomoPay API Token</label>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" id="gateway-atomopay-offer-hash" class="floating-input" placeholder=" " autocomplete="new-password" />
+                    <label for="gateway-atomopay-offer-hash" class="floating-label">Offer Hash Base</label>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" id="gateway-atomopay-product-hash" class="floating-input" placeholder=" " autocomplete="new-password" />
+                    <label for="gateway-atomopay-product-hash" class="floating-label">Product Hash Base</label>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" id="gateway-atomopay-iof-offer-hash" class="floating-input" placeholder=" " autocomplete="new-password" />
+                    <label for="gateway-atomopay-iof-offer-hash" class="floating-label">Offer Hash Upsell IOF</label>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" id="gateway-atomopay-iof-product-hash" class="floating-input" placeholder=" " autocomplete="new-password" />
+                    <label for="gateway-atomopay-iof-product-hash" class="floating-label">Product Hash Upsell IOF</label>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" id="gateway-atomopay-correios-offer-hash" class="floating-input" placeholder=" " autocomplete="new-password" />
+                    <label for="gateway-atomopay-correios-offer-hash" class="floating-label">Offer Hash Upsell Correios</label>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" id="gateway-atomopay-correios-product-hash" class="floating-input" placeholder=" " autocomplete="new-password" />
+                    <label for="gateway-atomopay-correios-product-hash" class="floating-label">Product Hash Upsell Correios</label>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" id="gateway-atomopay-expresso-offer-hash" class="floating-input" placeholder=" " autocomplete="new-password" />
+                    <label for="gateway-atomopay-expresso-offer-hash" class="floating-label">Offer Hash Upsell Expresso</label>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" id="gateway-atomopay-expresso-product-hash" class="floating-input" placeholder=" " autocomplete="new-password" />
+                    <label for="gateway-atomopay-expresso-product-hash" class="floating-label">Product Hash Upsell Expresso</label>
+                  </div>
+                  <div class="input-group">
+                    <input type="password" id="gateway-atomopay-webhook-token" class="floating-input" placeholder=" " autocomplete="new-password" />
+                    <label for="gateway-atomopay-webhook-token" class="floating-label">Webhook Token AtomoPay</label>
+                  </div>
+                </div>
+              </div>
+            </article>
           </div>
-          <p class="admin-hint">Webhook token: fixo em <code>dev</code> para GhostsPay. Sunize e Paradise nao exigem webhook token.</p>
+          <p class="admin-hint">GhostsPay, Sunize e Paradise seguem a configuracao atual. AtomoPay aceita token de webhook via query string quando configurado.</p>
         </section>
       </div>
     </main>
@@ -316,6 +386,10 @@
             <label class="gateway-test-option">
               <input type="checkbox" id="gateway-test-paradise" />
               <span>Paradise</span>
+            </label>
+            <label class="gateway-test-option">
+              <input type="checkbox" id="gateway-test-atomopay" />
+              <span>AtomoPay</span>
             </label>
           </div>
         </div>

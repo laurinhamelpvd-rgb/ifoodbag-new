@@ -5,6 +5,7 @@ const {
     requestTransactionById: requestParadiseStatus,
     requestTransactionByReference: requestParadiseByReference
 } = require('../../lib/paradise-provider');
+const { requestTransactionById: requestAtomopayStatus } = require('../../lib/atomopay-provider');
 const {
     normalizeActiveGatewayId,
     normalizeGatewayId,
@@ -38,6 +39,15 @@ const {
     isParadiseRefusedStatus,
     mapParadiseStatusToUtmify
 } = require('../../lib/paradise-status');
+const {
+    getAtomopayStatus,
+    getAtomopayUpdatedAt,
+    isAtomopayPaidStatus,
+    isAtomopayRefundedStatus,
+    isAtomopayRefusedStatus,
+    mapAtomopayStatusToUtmify,
+    resolveAtomopayPixPayload
+} = require('../../lib/atomopay-status');
 const {
     getLeadByPixTxid,
     getLeadBySessionId,
@@ -166,6 +176,15 @@ function looksLikePixCopyPaste(value = '') {
 }
 
 function extractPixFieldsForStatus(gateway, payload = {}) {
+    if (gateway === 'atomopay') {
+        const resolved = resolveAtomopayPixPayload(payload);
+        return {
+            paymentCode: String(resolved.paymentCode || '').trim(),
+            paymentCodeBase64: String(resolved.paymentCodeBase64 || '').trim(),
+            paymentQrUrl: String(resolved.paymentQrUrl || '').trim()
+        };
+    }
+
     const root = asObject(payload);
     const nested = asObject(root.data);
     const transaction = asObject(root.transaction);
@@ -304,6 +323,9 @@ function mapGatewayStatusToFrontend(gateway, statusRaw) {
     if (gateway === 'paradise') {
         return mapUtmifyStatusToFrontend(mapParadiseStatusToUtmify(statusRaw));
     }
+    if (gateway === 'atomopay') {
+        return mapUtmifyStatusToFrontend(mapAtomopayStatusToUtmify(statusRaw));
+    }
     const normalized = normalizeStatus(statusRaw);
     if (/paid|approved|confirm|complete|success/.test(normalized)) return 'paid';
     if (/refund/.test(normalized)) return 'refunded';
@@ -383,7 +405,7 @@ function buildPatchFromGatewayStatus(leadData, txid, gateway, statusRaw, nextSta
 function resolveStatusGateway(body = {}, leadData = null, payments = {}) {
     const payload = asObject(leadData?.payload);
     const fromLead = resolveGatewayFromPayload(payload, '');
-    if (fromLead === 'ghostspay' || fromLead === 'sunize' || fromLead === 'paradise') {
+    if (fromLead === 'ghostspay' || fromLead === 'sunize' || fromLead === 'paradise' || fromLead === 'atomopay') {
         return fromLead;
     }
     const requestedRaw = String(body.gateway || body.paymentGateway || body.provider || '').trim();
@@ -606,6 +628,37 @@ module.exports = async (req, res) => {
             toIsoDate(data?.updated_at) ||
             new Date().toISOString();
         ({ paymentCode, paymentCodeBase64, paymentQrUrl } = extractPixFieldsForStatus(gateway, data));
+    } else if (gateway === 'atomopay') {
+        ({ response, data } = await requestAtomopayStatus(statusGatewayConfig, txid));
+        if (!response?.ok) {
+            const status = Number(response?.status || 0);
+            res.status(status === 404 ? 200 : 502).json({
+                ok: status === 404,
+                status: leadStatus.status || 'waiting_payment',
+                statusRaw: leadStatus.statusRaw || '',
+                txid,
+                gateway,
+                source: 'database_fallback',
+                detail: data?.error || data?.message || ''
+            });
+            return;
+        }
+
+        statusRaw = getAtomopayStatus(data);
+        const mapped = mapAtomopayStatusToUtmify(statusRaw);
+        nextStatus = isAtomopayPaidStatus(statusRaw)
+            ? 'paid'
+            : isAtomopayRefundedStatus(statusRaw)
+                ? 'refunded'
+                : isAtomopayRefusedStatus(statusRaw)
+                    ? 'refused'
+                    : mapUtmifyStatusToFrontend(mapped);
+        changedAtIso =
+            toIsoDate(getAtomopayUpdatedAt(data)) ||
+            toIsoDate(data?.paid_at) ||
+            toIsoDate(data?.data?.paid_at) ||
+            new Date().toISOString();
+        ({ paymentCode, paymentCodeBase64, paymentQrUrl } = extractPixFieldsForStatus(gateway, data));
     } else {
         res.status(503).json({
             ok: false,
@@ -691,6 +744,8 @@ module.exports = async (req, res) => {
         const rewardSnapshot = upsellEvent ? null : buildLeadRewardSnapshot(latestPayload);
         const utmifyStatus = gateway === 'paradise'
             ? mapParadiseStatusToUtmify(statusRaw)
+            : gateway === 'atomopay'
+                ? mapAtomopayStatusToUtmify(statusRaw)
             : nextStatus === 'paid'
                 ? 'paid'
                 : nextStatus === 'refunded'
