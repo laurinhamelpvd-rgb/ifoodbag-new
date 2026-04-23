@@ -3828,6 +3828,8 @@ function initAdmin() {
     let pushcutConfirmedTitle = document.getElementById('pushcut-confirmed-title');
     let pushcutConfirmedMessage = document.getElementById('pushcut-confirmed-message');
     const paymentsActiveGateway = document.getElementById('payments-active-gateway');
+    const paymentsGatewayOrder = document.getElementById('payments-gateway-order');
+    const gatewayPriorityCurrent = document.getElementById('gateway-priority-current');
     const gatewayGhostspayEnabled = document.getElementById('gateway-ghostspay-enabled');
     const gatewayGhostspayBaseUrl = document.getElementById('gateway-ghostspay-base-url');
     const gatewayGhostspaySecretKey = document.getElementById('gateway-ghostspay-secret-key');
@@ -4156,6 +4158,7 @@ function initAdmin() {
     );
     const hasPaymentsForm = !!(
         paymentsActiveGateway ||
+        paymentsGatewayOrder ||
         gatewayGhostspayEnabled ||
         gatewayGhostspayBaseUrl ||
         gatewayGhostspaySecretKey ||
@@ -4218,6 +4221,169 @@ function initAdmin() {
         return 'GhostsPay';
     };
 
+    const gatewayOrderKeys = ['ghostspay', 'sunize', 'paradise', 'atomopay'];
+
+    const normalizeGatewayOrderForUi = (value, fallback = 'ghostspay') => {
+        const rawList = Array.isArray(value)
+            ? value
+            : String(value || '')
+                .split(',')
+                .map((item) => item.trim())
+                .filter(Boolean);
+        const order = [];
+        rawList.forEach((item) => {
+            const normalized = normalizeGatewayKey(item);
+            if (gatewayOrderKeys.includes(normalized) && !order.includes(normalized)) {
+                order.push(normalized);
+            }
+        });
+        const fallbackGateway = normalizeGatewayKey(fallback);
+        return [...new Set([...order, fallbackGateway, ...gatewayOrderKeys])];
+    };
+
+    const getGatewayOrderItems = () => Array.from(paymentsGatewayOrder?.querySelectorAll('[data-gateway-order-item]') || []);
+
+    const getGatewayOrderFromUi = () => {
+        const fromDom = getGatewayOrderItems()
+            .map((item) => normalizeGatewayKey(item.getAttribute('data-gateway-order-item')))
+            .filter((gateway) => gatewayOrderKeys.includes(gateway));
+        return normalizeGatewayOrderForUi(fromDom, paymentsActiveGateway?.value || currentSettings?.payments?.activeGateway || 'ghostspay');
+    };
+
+    const getPrimaryGatewayFromUi = () => {
+        const order = getGatewayOrderFromUi();
+        return normalizeGatewayKey(order[0] || paymentsActiveGateway?.value || 'ghostspay');
+    };
+
+    const getGatewayEnabledInput = (gateway) => {
+        const normalized = normalizeGatewayKey(gateway);
+        if (normalized === 'ghostspay') return gatewayGhostspayEnabled;
+        if (normalized === 'sunize') return gatewaySunizeEnabled;
+        if (normalized === 'paradise') return gatewayParadiseEnabled;
+        if (normalized === 'atomopay') return gatewayAtomopayEnabled;
+        return null;
+    };
+
+    const getCurrentGatewaySettings = (gateway) => {
+        const normalized = normalizeGatewayKey(gateway);
+        return currentSettings?.payments?.gateways?.[normalized] || {};
+    };
+
+    const readCheckboxSetting = (input, currentValue = false) => (
+        input ? !!input.checked : currentValue === true
+    );
+
+    const readInputSetting = (input, currentValue = '') => (
+        input ? String(input.value || '').trim() : String(currentValue || '').trim()
+    );
+
+    const isGatewayEnabledForUi = (gateway) => {
+        const normalized = normalizeGatewayKey(gateway);
+        const input = getGatewayEnabledInput(normalized);
+        if (input) return !!input.checked;
+        return getCurrentGatewaySettings(normalized).enabled === true;
+    };
+
+    const syncGatewayOrderStates = () => {
+        getGatewayOrderItems().forEach((item, index) => {
+            const gateway = normalizeGatewayKey(item.getAttribute('data-gateway-order-item'));
+            const enabled = isGatewayEnabledForUi(gateway);
+            const indexNode = item.querySelector('.gateway-order-index');
+            const stateNode = item.querySelector('[data-gateway-order-state]');
+            const upButton = item.querySelector('[data-gateway-order-move="up"]');
+            const downButton = item.querySelector('[data-gateway-order-move="down"]');
+            if (indexNode) indexNode.textContent = String(index + 1);
+            if (stateNode) {
+                stateNode.textContent = enabled ? 'Ligado' : 'Desligado';
+                stateNode.classList.toggle('is-on', enabled);
+            }
+            item.classList.toggle('is-disabled', !enabled);
+            if (upButton) upButton.disabled = index === 0;
+            if (downButton) downButton.disabled = index === getGatewayOrderItems().length - 1;
+        });
+    };
+
+    const syncGatewayOrderMeta = () => {
+        const primary = getPrimaryGatewayFromUi();
+        if (paymentsActiveGateway) paymentsActiveGateway.value = primary;
+        if (gatewayPriorityCurrent) gatewayPriorityCurrent.textContent = gatewayLabelForUi(primary);
+        if (metricActiveGateway) metricActiveGateway.textContent = gatewayLabelForUi(primary);
+        setCurrentGatewayCard(primary);
+        syncGatewayOrderStates();
+    };
+
+    const syncGatewayOrderUi = (order = []) => {
+        if (!paymentsGatewayOrder) {
+            if (paymentsActiveGateway && order.length) {
+                paymentsActiveGateway.value = normalizeGatewayKey(order[0]);
+            }
+            return;
+        }
+        const normalized = normalizeGatewayOrderForUi(order, paymentsActiveGateway?.value || 'ghostspay');
+        normalized.forEach((gateway) => {
+            const item = paymentsGatewayOrder.querySelector(`[data-gateway-order-item="${gateway}"]`);
+            if (item) paymentsGatewayOrder.appendChild(item);
+        });
+        syncGatewayOrderMeta();
+    };
+
+    const getGatewayOrderDragAfterElement = (y) => {
+        const items = getGatewayOrderItems().filter((item) => !item.classList.contains('is-dragging'));
+        return items.reduce((closest, child) => {
+            const box = child.getBoundingClientRect();
+            const offset = y - box.top - box.height / 2;
+            if (offset < 0 && offset > closest.offset) {
+                return { offset, element: child };
+            }
+            return closest;
+        }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
+    };
+
+    const initializeGatewayOrderControls = () => {
+        if (!paymentsGatewayOrder) return;
+        paymentsGatewayOrder.addEventListener('dragstart', (event) => {
+            const item = event.target?.closest?.('[data-gateway-order-item]');
+            if (!item) return;
+            event.dataTransfer.effectAllowed = 'move';
+            event.dataTransfer.setData('text/plain', item.getAttribute('data-gateway-order-item') || '');
+            item.classList.add('is-dragging');
+        });
+        paymentsGatewayOrder.addEventListener('dragover', (event) => {
+            event.preventDefault();
+            const dragging = paymentsGatewayOrder.querySelector('.is-dragging');
+            if (!dragging) return;
+            const afterElement = getGatewayOrderDragAfterElement(event.clientY);
+            if (!afterElement) {
+                paymentsGatewayOrder.appendChild(dragging);
+            } else {
+                paymentsGatewayOrder.insertBefore(dragging, afterElement);
+            }
+            syncGatewayOrderStates();
+        });
+        paymentsGatewayOrder.addEventListener('drop', (event) => {
+            event.preventDefault();
+            syncGatewayOrderMeta();
+        });
+        paymentsGatewayOrder.addEventListener('dragend', () => {
+            getGatewayOrderItems().forEach((item) => item.classList.remove('is-dragging'));
+            syncGatewayOrderMeta();
+        });
+        paymentsGatewayOrder.addEventListener('click', (event) => {
+            const button = event.target?.closest?.('[data-gateway-order-move]');
+            if (!button || button.disabled) return;
+            const item = button.closest('[data-gateway-order-item]');
+            if (!item) return;
+            const direction = button.getAttribute('data-gateway-order-move');
+            if (direction === 'up' && item.previousElementSibling) {
+                paymentsGatewayOrder.insertBefore(item, item.previousElementSibling);
+            }
+            if (direction === 'down' && item.nextElementSibling) {
+                paymentsGatewayOrder.insertBefore(item.nextElementSibling, item);
+            }
+            syncGatewayOrderMeta();
+        });
+    };
+
     const formatPercent = (value) => {
         const numeric = Number(value || 0);
         if (!Number.isFinite(numeric)) return '0%';
@@ -4246,6 +4412,7 @@ function initAdmin() {
         syncGatewaySwitchState(gatewaySunizeEnabled, gatewaySunizeState);
         syncGatewaySwitchState(gatewayParadiseEnabled, gatewayParadiseState);
         syncGatewaySwitchState(gatewayAtomopayEnabled, gatewayAtomopayState);
+        syncGatewayOrderStates();
     };
 
     const setCurrentGatewayCard = (gateway) => {
@@ -4443,7 +4610,8 @@ function initAdmin() {
             const sunize = gateways.sunize || {};
             const paradise = gateways.paradise || {};
             const atomopay = gateways.atomopay || {};
-            const activeGateway = normalizeGatewayKey(payments.activeGateway || 'ghostspay');
+            const gatewayOrder = normalizeGatewayOrderForUi(payments.gatewayOrder || [], payments.activeGateway || 'ghostspay');
+            const activeGateway = normalizeGatewayKey(gatewayOrder[0] || payments.activeGateway || 'ghostspay');
 
             if (paymentsActiveGateway) paymentsActiveGateway.value = activeGateway;
             if (gatewayGhostspayEnabled) gatewayGhostspayEnabled.checked = !!ghostspay.enabled;
@@ -4476,6 +4644,7 @@ function initAdmin() {
             if (gatewayAtomopayWebhookToken) gatewayAtomopayWebhookToken.value = atomopay.webhookToken || '';
 
             syncGatewaySwitches();
+            syncGatewayOrderUi(gatewayOrder);
             setCurrentGatewayCard(activeGateway);
             setGatewayCardOpen(activeGateway, true);
 
@@ -5409,51 +5578,57 @@ function initAdmin() {
         }
 
         if (hasPaymentsForm) {
-            const activeGateway = normalizeGatewayKey(paymentsActiveGateway?.value || 'ghostspay');
+            const gatewayOrder = getGatewayOrderFromUi();
+            const activeGateway = normalizeGatewayKey(gatewayOrder[0] || paymentsActiveGateway?.value || 'ghostspay');
+            const currentGhostspay = getCurrentGatewaySettings('ghostspay');
+            const currentSunize = getCurrentGatewaySettings('sunize');
+            const currentParadise = getCurrentGatewaySettings('paradise');
+            const currentAtomopay = getCurrentGatewaySettings('atomopay');
             payload.payments = {
                 ...(currentSettings?.payments || {}),
                 activeGateway,
+                gatewayOrder,
                 gateways: {
                     ...(currentSettings?.payments?.gateways || {}),
                     ghostspay: {
                         ...(currentSettings?.payments?.gateways?.ghostspay || {}),
-                        enabled: !!gatewayGhostspayEnabled?.checked,
-                        baseUrl: gatewayGhostspayBaseUrl?.value?.trim() || '',
-                        secretKey: gatewayGhostspaySecretKey?.value?.trim() || '',
-                        companyId: gatewayGhostspayCompanyId?.value?.trim() || '',
-                        webhookToken: gatewayGhostspayWebhookToken?.value?.trim() || ''
+                        enabled: readCheckboxSetting(gatewayGhostspayEnabled, currentGhostspay.enabled),
+                        baseUrl: readInputSetting(gatewayGhostspayBaseUrl, currentGhostspay.baseUrl),
+                        secretKey: readInputSetting(gatewayGhostspaySecretKey, currentGhostspay.secretKey),
+                        companyId: readInputSetting(gatewayGhostspayCompanyId, currentGhostspay.companyId),
+                        webhookToken: readInputSetting(gatewayGhostspayWebhookToken, currentGhostspay.webhookToken)
                     },
                     sunize: {
                         ...(currentSettings?.payments?.gateways?.sunize || {}),
-                        enabled: !!gatewaySunizeEnabled?.checked,
-                        baseUrl: gatewaySunizeBaseUrl?.value?.trim() || '',
-                        apiKey: gatewaySunizeApiKey?.value?.trim() || '',
-                        apiSecret: gatewaySunizeApiSecret?.value?.trim() || ''
+                        enabled: readCheckboxSetting(gatewaySunizeEnabled, currentSunize.enabled),
+                        baseUrl: readInputSetting(gatewaySunizeBaseUrl, currentSunize.baseUrl),
+                        apiKey: readInputSetting(gatewaySunizeApiKey, currentSunize.apiKey),
+                        apiSecret: readInputSetting(gatewaySunizeApiSecret, currentSunize.apiSecret)
                     },
                     paradise: {
                         ...(currentSettings?.payments?.gateways?.paradise || {}),
-                        enabled: !!gatewayParadiseEnabled?.checked,
-                        baseUrl: gatewayParadiseBaseUrl?.value?.trim() || '',
-                        apiKey: gatewayParadiseApiKey?.value?.trim() || '',
-                        productHash: gatewayParadiseProductHash?.value?.trim() || '',
-                        orderbumpHash: gatewayParadiseOrderbumpHash?.value?.trim() || '',
-                        source: gatewayParadiseSource?.value?.trim() || '',
-                        description: gatewayParadiseDescription?.value?.trim() || ''
+                        enabled: readCheckboxSetting(gatewayParadiseEnabled, currentParadise.enabled),
+                        baseUrl: readInputSetting(gatewayParadiseBaseUrl, currentParadise.baseUrl),
+                        apiKey: readInputSetting(gatewayParadiseApiKey, currentParadise.apiKey),
+                        productHash: readInputSetting(gatewayParadiseProductHash, currentParadise.productHash),
+                        orderbumpHash: readInputSetting(gatewayParadiseOrderbumpHash, currentParadise.orderbumpHash),
+                        source: readInputSetting(gatewayParadiseSource, currentParadise.source),
+                        description: readInputSetting(gatewayParadiseDescription, currentParadise.description)
                     },
                     atomopay: {
                         ...(currentSettings?.payments?.gateways?.atomopay || {}),
-                        enabled: !!gatewayAtomopayEnabled?.checked,
-                        baseUrl: gatewayAtomopayBaseUrl?.value?.trim() || '',
-                        apiToken: gatewayAtomopayApiToken?.value?.trim() || '',
-                        offerHash: gatewayAtomopayOfferHash?.value?.trim() || '',
-                        productHash: gatewayAtomopayProductHash?.value?.trim() || '',
-                        iofOfferHash: gatewayAtomopayIofOfferHash?.value?.trim() || '',
-                        iofProductHash: gatewayAtomopayIofProductHash?.value?.trim() || '',
-                        correiosOfferHash: gatewayAtomopayCorreiosOfferHash?.value?.trim() || '',
-                        correiosProductHash: gatewayAtomopayCorreiosProductHash?.value?.trim() || '',
-                        expressoOfferHash: gatewayAtomopayExpressoOfferHash?.value?.trim() || '',
-                        expressoProductHash: gatewayAtomopayExpressoProductHash?.value?.trim() || '',
-                        webhookToken: gatewayAtomopayWebhookToken?.value?.trim() || ''
+                        enabled: readCheckboxSetting(gatewayAtomopayEnabled, currentAtomopay.enabled),
+                        baseUrl: readInputSetting(gatewayAtomopayBaseUrl, currentAtomopay.baseUrl),
+                        apiToken: readInputSetting(gatewayAtomopayApiToken, currentAtomopay.apiToken),
+                        offerHash: readInputSetting(gatewayAtomopayOfferHash, currentAtomopay.offerHash),
+                        productHash: readInputSetting(gatewayAtomopayProductHash, currentAtomopay.productHash),
+                        iofOfferHash: readInputSetting(gatewayAtomopayIofOfferHash, currentAtomopay.iofOfferHash),
+                        iofProductHash: readInputSetting(gatewayAtomopayIofProductHash, currentAtomopay.iofProductHash),
+                        correiosOfferHash: readInputSetting(gatewayAtomopayCorreiosOfferHash, currentAtomopay.correiosOfferHash),
+                        correiosProductHash: readInputSetting(gatewayAtomopayCorreiosProductHash, currentAtomopay.correiosProductHash),
+                        expressoOfferHash: readInputSetting(gatewayAtomopayExpressoOfferHash, currentAtomopay.expressoOfferHash),
+                        expressoProductHash: readInputSetting(gatewayAtomopayExpressoProductHash, currentAtomopay.expressoProductHash),
+                        webhookToken: readInputSetting(gatewayAtomopayWebhookToken, currentAtomopay.webhookToken)
                     }
                 }
             };
@@ -5486,8 +5661,9 @@ function initAdmin() {
             await loadSettings();
         }
         if (res.ok && hasPaymentsForm) {
-            const activeGateway = normalizeGatewayKey(paymentsActiveGateway?.value || 'ghostspay');
+            const activeGateway = getPrimaryGatewayFromUi();
             setCurrentGatewayCard(activeGateway);
+            syncGatewayOrderMeta();
             syncGatewaySwitches();
             if (metricActiveGateway) {
                 metricActiveGateway.textContent = gatewayLabelForUi(activeGateway);
@@ -6589,9 +6765,10 @@ function initAdmin() {
     testPushcutBtn?.addEventListener('click', runPushcutTest);
     processDispatchBtn?.addEventListener('click', runDispatchProcess);
     paymentsActiveGateway?.addEventListener('change', () => {
-        const selected = normalizeGatewayKey(paymentsActiveGateway?.value || 'ghostspay');
+        const selected = getPrimaryGatewayFromUi();
         setCurrentGatewayCard(selected);
         setGatewayCardOpen(selected, true);
+        syncGatewayOrderMeta();
         if (metricActiveGateway) {
             metricActiveGateway.textContent = gatewayLabelForUi(selected);
         }
@@ -6624,8 +6801,10 @@ function initAdmin() {
     });
 
     if (hasPaymentsForm) {
-        const selected = normalizeGatewayKey(paymentsActiveGateway?.value || 'ghostspay');
+        initializeGatewayOrderControls();
+        const selected = getPrimaryGatewayFromUi();
         syncGatewaySwitches();
+        syncGatewayOrderMeta();
         setCurrentGatewayCard(selected);
         setGatewayCardOpen(selected, true);
     }

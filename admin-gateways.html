@@ -11,7 +11,7 @@
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700&display=swap" rel="stylesheet" />
-  <link rel="stylesheet" href="/style.css?v=3.9" />
+  <link rel="stylesheet" href="/style.css?v=4.0" />
   <script src="/backguard.js?v=1.5"></script>
 </head>
 <body data-page="admin" data-admin="gateways">
@@ -156,17 +156,49 @@
             <h2>Configuracao dos gateways</h2>
             <span class="admin-chip">Pagamentos</span>
           </div>
-          <p class="admin-hint">Defina o gateway ativo, ligue/desligue provedores e ajuste credenciais sem deploy.</p>
+          <p class="admin-hint">Configure a prioridade de tentativa, ligue/desligue provedores e ajuste credenciais sem deploy.</p>
 
           <div class="gateway-top-row">
-            <div class="input-group">
-              <select id="payments-active-gateway" class="floating-input">
-                <option value="ghostspay">GhostsPay</option>
-                <option value="sunize">Sunize</option>
-                <option value="paradise">Paradise</option>
-                <option value="atomopay">AtomoPay</option>
-              </select>
-              <label for="payments-active-gateway" class="floating-label">Gateway ativo para gerar PIX</label>
+            <input type="hidden" id="payments-active-gateway" value="ghostspay" />
+            <div class="gateway-priority-panel">
+              <div class="gateway-priority-panel__head">
+                <strong>Prioridade de tentativa</strong>
+                <span id="gateway-priority-current">-</span>
+              </div>
+              <div id="payments-gateway-order" class="gateway-order-list" aria-label="Prioridade dos gateways">
+                <article class="gateway-order-item" data-gateway-order-item="ghostspay" draggable="true">
+                  <span class="gateway-order-index">1</span>
+                  <span class="gateway-order-handle" aria-hidden="true"></span>
+                  <span class="gateway-order-name">GhostsPay</span>
+                  <span class="gateway-order-state" data-gateway-order-state="ghostspay">-</span>
+                  <button class="gateway-order-move" type="button" data-gateway-order-move="up" aria-label="Subir GhostsPay"></button>
+                  <button class="gateway-order-move" type="button" data-gateway-order-move="down" aria-label="Descer GhostsPay"></button>
+                </article>
+                <article class="gateway-order-item" data-gateway-order-item="sunize" draggable="true">
+                  <span class="gateway-order-index">2</span>
+                  <span class="gateway-order-handle" aria-hidden="true"></span>
+                  <span class="gateway-order-name">Sunize</span>
+                  <span class="gateway-order-state" data-gateway-order-state="sunize">-</span>
+                  <button class="gateway-order-move" type="button" data-gateway-order-move="up" aria-label="Subir Sunize"></button>
+                  <button class="gateway-order-move" type="button" data-gateway-order-move="down" aria-label="Descer Sunize"></button>
+                </article>
+                <article class="gateway-order-item" data-gateway-order-item="paradise" draggable="true">
+                  <span class="gateway-order-index">3</span>
+                  <span class="gateway-order-handle" aria-hidden="true"></span>
+                  <span class="gateway-order-name">Paradise</span>
+                  <span class="gateway-order-state" data-gateway-order-state="paradise">-</span>
+                  <button class="gateway-order-move" type="button" data-gateway-order-move="up" aria-label="Subir Paradise"></button>
+                  <button class="gateway-order-move" type="button" data-gateway-order-move="down" aria-label="Descer Paradise"></button>
+                </article>
+                <article class="gateway-order-item" data-gateway-order-item="atomopay" draggable="true">
+                  <span class="gateway-order-index">4</span>
+                  <span class="gateway-order-handle" aria-hidden="true"></span>
+                  <span class="gateway-order-name">AtomoPay</span>
+                  <span class="gateway-order-state" data-gateway-order-state="atomopay">-</span>
+                  <button class="gateway-order-move" type="button" data-gateway-order-move="up" aria-label="Subir AtomoPay"></button>
+                  <button class="gateway-order-move" type="button" data-gateway-order-move="down" aria-label="Descer AtomoPay"></button>
+                </article>
+              </div>
             </div>
             <p class="gateway-top-row-note">Tokens ficam mascarados no painel. Para manter o token atual, salve sem alterar o campo.</p>
           </div>
@@ -411,7 +443,7 @@
 
   <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
 
-  <script src="/script.js?v=10.2" defer></script>
+  <script src="/script.js?v=10.3" defer></script>
 </body>
 </html>
 

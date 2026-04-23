@@ -2,7 +2,7 @@ const { upsertLead, getLeadBySessionId } = require('../../lib/lead-store');
 const { ensurePublicAccess } = require('../../lib/public-access');
 const { enqueueDispatch, processDispatchQueue } = require('../../lib/dispatch-queue');
 const {
-    getGatewayPriority,
+    normalizeGatewayOrder,
     normalizeActiveGatewayId,
     normalizeGatewayId
 } = require('../../lib/payment-gateway-config');
@@ -40,8 +40,11 @@ function resolveGateway(rawBody = {}, payments = {}) {
 }
 
 function resolveGatewayCandidates(rawBody = {}, payments = {}) {
-    const requested = rawBody.gateway || rawBody.paymentGateway || payments.activeGateway;
-    const priority = getGatewayPriority(requested, payments.activeGateway);
+    const requested = rawBody.gateway || rawBody.paymentGateway || '';
+    const configuredOrder = normalizeGatewayOrder(payments.gatewayOrder || [], payments.activeGateway);
+    const priority = requested
+        ? [...new Set([normalizeActiveGatewayId(requested, payments.activeGateway), ...configuredOrder])]
+        : configuredOrder;
     const isEnabled = (gateway) => (payments?.gateways?.[gateway] || {}).enabled === true;
     const hasGatewayCredentials = (gateway) => {
         const config = payments?.gateways?.[gateway] || {};
