@@ -1319,7 +1319,7 @@ module.exports = async (req, res) => {
                 externalId = sunizeData.externalId || externalId;
             } else if (gateway === 'paradise') {
                 if (!hasParadiseCredentials(gatewayConfig)) {
-                    console.error('[pix] paradise missing credentials', {
+                    console.warn('[pix] paradise missing credentials', {
                         hasApiKey: Boolean(String(gatewayConfig.apiKey || '').trim()),
                         baseUrl: String(gatewayConfig.baseUrl || '').trim()
                     });
@@ -1371,7 +1371,7 @@ module.exports = async (req, res) => {
 
                 ({ response, data } = await requestParadiseCreate(gatewayConfig, paradisePayload));
                 if (!response?.ok || data?.success === false || String(data?.status || '').toLowerCase() === 'error') {
-                    console.error('[pix] paradise create failed', {
+                    console.warn('[pix] paradise create failed', {
                         status: Number(response?.status || 0),
                         detail: data?.error || data?.message || data?.status || '',
                         reference: externalId,
@@ -1427,7 +1427,7 @@ module.exports = async (req, res) => {
                     offerHash: atomopayProduct.offerHash,
                     productHash: atomopayProduct.productHash
                 })) {
-                    console.error('[pix] atomopay missing credentials', {
+                    console.warn('[pix] atomopay missing credentials', {
                         hasApiToken: Boolean(String(gatewayConfig.apiToken || '').trim()),
                         hasOfferHash: Boolean(String(atomopayProduct.offerHash || '').trim()),
                         hasProductHash: Boolean(String(atomopayProduct.productHash || '').trim()),
@@ -1484,7 +1484,7 @@ module.exports = async (req, res) => {
 
                 ({ response, data } = await requestAtomopayCreate(gatewayConfig, atomopayPayload));
                 if (!response?.ok || data?.success === false) {
-                    console.error('[pix] atomopay create failed', {
+                    console.warn('[pix] atomopay create failed', {
                         status: Number(response?.status || 0),
                         detail: data?.error || data?.message || data?.status || '',
                         variant: atomopayProduct.variant
