@@ -389,13 +389,33 @@ function parseRangeDateToIso(value, { endOfDay = false } = {}) {
     return date.toISOString();
 }
 
+function parseExactDateToIso(value) {
+    const raw = String(value || '').trim();
+    if (!raw) return null;
+    const date = new Date(raw);
+    if (Number.isNaN(date.getTime())) return null;
+    return date.toISOString();
+}
+
 function parseLeadsDateRange(query = {}) {
+    const rawFromExact = firstQueryValue(pick(query.fromIsoExact, query.fromExact, query.startIsoExact));
+    const rawToExact = firstQueryValue(pick(query.toIsoExact, query.toExact, query.endIsoExact));
     const rawFrom = firstQueryValue(pick(query.from, query.dateFrom, query.startDate));
     const rawTo = firstQueryValue(pick(query.to, query.dateTo, query.endDate));
 
-    const fromIso = rawFrom ? parseRangeDateToIso(rawFrom, { endOfDay: false }) : null;
-    const toIso = rawTo ? parseRangeDateToIso(rawTo, { endOfDay: true }) : null;
+    const fromIso = rawFromExact
+        ? parseExactDateToIso(rawFromExact)
+        : (rawFrom ? parseRangeDateToIso(rawFrom, { endOfDay: false }) : null);
+    const toIso = rawToExact
+        ? parseExactDateToIso(rawToExact)
+        : (rawTo ? parseRangeDateToIso(rawTo, { endOfDay: true }) : null);
 
+    if (rawFromExact && !fromIso) {
+        return { ok: false, error: 'Filtro de data "fromIsoExact" invalido.' };
+    }
+    if (rawToExact && !toIso) {
+        return { ok: false, error: 'Filtro de data "toIsoExact" invalido.' };
+    }
     if (rawFrom && !fromIso) {
         return { ok: false, error: 'Filtro de data "from" invalido.' };
     }

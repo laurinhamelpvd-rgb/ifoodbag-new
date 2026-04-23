@@ -3996,6 +3996,13 @@ function initAdmin() {
     let offset = 0;
     const limit = 50;
     let loadingLeads = false;
+    let loadingGatewayOrderDailyStats = false;
+    const emptyGatewayStats = () => ({
+        ghostspay: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0, conversion: 0 },
+        sunize: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0, conversion: 0 },
+        paradise: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0, conversion: 0 },
+        atomopay: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0, conversion: 0 }
+    });
     const metrics = {
         total: 0,
         pix: 0,
@@ -4004,13 +4011,9 @@ function initAdmin() {
         paid: 0,
         lastUpdated: '',
         funnel: null,
-        gatewayStats: {
-            ghostspay: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
-            sunize: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
-            paradise: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
-            atomopay: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 }
-        }
+        gatewayStats: emptyGatewayStats()
     };
+    let gatewayOrderDailyStats = emptyGatewayStats();
     const funnelPageMeta = {
         home: { label: 'index.html', desc: 'Pagina inicial (entrada do funil)' },
         quiz: { label: 'quiz.html', desc: 'Perguntas de qualificacao' },
@@ -4284,9 +4287,19 @@ function initAdmin() {
         return getCurrentGatewaySettings(normalized).enabled === true;
     };
 
+    const normalizeGatewayStatsMap = (source = {}) => {
+        const base = emptyGatewayStats();
+        return {
+            ghostspay: { ...base.ghostspay, ...(source.ghostspay || {}) },
+            sunize: { ...base.sunize, ...(source.sunize || {}) },
+            paradise: { ...base.paradise, ...(source.paradise || {}) },
+            atomopay: { ...base.atomopay, ...(source.atomopay || {}) }
+        };
+    };
+
     const getGatewayMetricsForUi = (gateway) => {
         const normalized = normalizeGatewayKey(gateway);
-        const stats = metrics.gatewayStats?.[normalized] || {};
+        const stats = gatewayOrderDailyStats?.[normalized] || {};
         const generated = Number(stats.pix || 0);
         const paid = Number(stats.paid || 0);
         const conversionRaw = Number.isFinite(Number(stats.conversion))
@@ -4316,6 +4329,40 @@ function initAdmin() {
             const bar = paymentsGatewayOrder.querySelector(`[data-gateway-order-conversion-bar="${gateway}"]`);
             if (bar) bar.style.width = `${stats.conversion}%`;
         });
+    };
+
+    const getTodayLocalRangeExact = () => {
+        const now = new Date();
+        const start = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0, 0);
+        const end = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 23, 59, 59, 999);
+        return {
+            fromIsoExact: start.toISOString(),
+            toIsoExact: end.toISOString()
+        };
+    };
+
+    const loadGatewayOrderDailyStats = async () => {
+        if (!paymentsGatewayOrder || loadingGatewayOrderDailyStats) return;
+        loadingGatewayOrderDailyStats = true;
+        try {
+            const range = getTodayLocalRangeExact();
+            const url = new URL('/api/admin/leads', window.location.origin);
+            url.searchParams.set('limit', '1');
+            url.searchParams.set('offset', '0');
+            url.searchParams.set('summary', '1');
+            url.searchParams.set('summaryMax', '80000');
+            url.searchParams.set('fromIsoExact', range.fromIsoExact);
+            url.searchParams.set('toIsoExact', range.toIsoExact);
+            const res = await adminFetch(url.toString());
+            if (!res.ok) return;
+            const data = await res.json().catch(() => ({}));
+            gatewayOrderDailyStats = normalizeGatewayStatsMap(data?.summary?.gatewayStats || {});
+            syncGatewayOrderStats();
+        } catch (_error) {
+            // Keep the last rendered values if the daily summary request fails.
+        } finally {
+            loadingGatewayOrderDailyStats = false;
+        }
     };
 
     const syncGatewayOrderStates = () => {
@@ -6104,13 +6151,6 @@ function initAdmin() {
     };
 
     const updateMetrics = (rows, reset = false, summary = null) => {
-        const emptyGatewayStats = () => ({
-            ghostspay: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
-            sunize: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
-            paradise: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 },
-            atomopay: { leads: 0, pix: 0, paid: 0, refunded: 0, refused: 0, pending: 0 }
-        });
-
         if (summary && typeof summary === 'object') {
             metrics.total = Number(summary.total || 0);
             metrics.pix = Number(summary.pix || 0);
@@ -6119,26 +6159,7 @@ function initAdmin() {
             metrics.paid = Number(summary.paid || 0);
             metrics.lastUpdated = String(summary.lastUpdated || '');
             metrics.funnel = summary.funnel && typeof summary.funnel === 'object' ? summary.funnel : null;
-            const source = summary.gatewayStats || {};
-            const base = emptyGatewayStats();
-            metrics.gatewayStats = {
-                ghostspay: {
-                    ...base.ghostspay,
-                    ...(source.ghostspay || {})
-                },
-                sunize: {
-                    ...base.sunize,
-                    ...(source.sunize || {})
-                },
-                paradise: {
-                    ...base.paradise,
-                    ...(source.paradise || {})
-                },
-                atomopay: {
-                    ...base.atomopay,
-                    ...(source.atomopay || {})
-                }
-            };
+            metrics.gatewayStats = normalizeGatewayStatsMap(summary.gatewayStats || {});
         } else {
         if (reset) {
             metrics.total = 0;
@@ -6272,6 +6293,9 @@ function initAdmin() {
             const rows = data.data || [];
             renderLeads(rows, !reset);
             updateMetrics(rows, reset, data.summary || null);
+            if (paymentsGatewayOrder) {
+                loadGatewayOrderDailyStats().catch(() => null);
+            }
             if (overviewRangeStatus && data?.summary?.range && hasOverviewRangeControls) {
                 overviewRangeStatus.textContent = describeOverviewRange({
                     preset: overviewRange.preset,
