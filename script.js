@@ -4284,6 +4284,40 @@ function initAdmin() {
         return getCurrentGatewaySettings(normalized).enabled === true;
     };
 
+    const getGatewayMetricsForUi = (gateway) => {
+        const normalized = normalizeGatewayKey(gateway);
+        const stats = metrics.gatewayStats?.[normalized] || {};
+        const generated = Number(stats.pix || 0);
+        const paid = Number(stats.paid || 0);
+        const conversionRaw = Number.isFinite(Number(stats.conversion))
+            ? Number(stats.conversion)
+            : (generated > 0 ? (paid / generated) * 100 : 0);
+        const conversion = Math.max(0, Math.min(100, Number(conversionRaw || 0)));
+        return {
+            generated,
+            paid,
+            conversion
+        };
+    };
+
+    const setGatewayOrderMetricText = (selector, gateway, value) => {
+        const node = paymentsGatewayOrder?.querySelector?.(`[${selector}="${gateway}"]`);
+        if (node) node.textContent = String(value);
+    };
+
+    const syncGatewayOrderStats = () => {
+        if (!paymentsGatewayOrder) return;
+        gatewayOrderKeys.forEach((gateway) => {
+            const stats = getGatewayMetricsForUi(gateway);
+            const conversionLabel = `${Math.round(stats.conversion)}%`;
+            setGatewayOrderMetricText('data-gateway-order-generated', gateway, stats.generated);
+            setGatewayOrderMetricText('data-gateway-order-paid', gateway, stats.paid);
+            setGatewayOrderMetricText('data-gateway-order-conversion', gateway, conversionLabel);
+            const bar = paymentsGatewayOrder.querySelector(`[data-gateway-order-conversion-bar="${gateway}"]`);
+            if (bar) bar.style.width = `${stats.conversion}%`;
+        });
+    };
+
     const syncGatewayOrderStates = () => {
         getGatewayOrderItems().forEach((item, index) => {
             const gateway = normalizeGatewayKey(item.getAttribute('data-gateway-order-item'));
@@ -4301,6 +4335,7 @@ function initAdmin() {
             if (upButton) upButton.disabled = index === 0;
             if (downButton) downButton.disabled = index === getGatewayOrderItems().length - 1;
         });
+        syncGatewayOrderStats();
     };
 
     const syncGatewayOrderMeta = () => {
@@ -6209,6 +6244,7 @@ function initAdmin() {
             }
         }
 
+        syncGatewayOrderStats();
         renderNativeFunnel(metrics.funnel);
     };
 

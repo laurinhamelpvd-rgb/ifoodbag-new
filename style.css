@@ -3391,7 +3391,7 @@ body[data-page='admin'][data-admin='leads'] .admin-topbar {
 
 .gateway-top-row {
     display: grid;
-    grid-template-columns: minmax(280px, 560px) 1fr;
+    grid-template-columns: minmax(520px, 780px) 1fr;
     gap: 14px;
     align-items: start;
 }
@@ -3440,9 +3440,9 @@ body[data-page='admin'][data-admin='leads'] .admin-topbar {
 }
 
 .gateway-order-item {
-    min-height: 52px;
+    min-height: 64px;
     display: grid;
-    grid-template-columns: 32px 24px minmax(0, 1fr) auto 34px 34px;
+    grid-template-columns: 32px 24px minmax(92px, 1fr) minmax(270px, 360px) auto 34px 34px;
     align-items: center;
     gap: 8px;
     border: 1px solid #e8ecf2;
@@ -3492,6 +3492,63 @@ body[data-page='admin'][data-admin='leads'] .admin-topbar {
     overflow: hidden;
     text-overflow: ellipsis;
     white-space: nowrap;
+}
+
+.gateway-order-stats {
+    min-width: 0;
+    display: grid;
+    grid-template-columns: repeat(3, minmax(78px, 1fr));
+    gap: 6px;
+}
+
+.gateway-order-stat {
+    min-width: 0;
+    min-height: 44px;
+    border: 1px solid #e4e9f1;
+    border-radius: 8px;
+    background: #fff;
+    padding: 6px 8px;
+    display: flex;
+    flex-direction: column;
+    justify-content: center;
+    gap: 2px;
+}
+
+.gateway-order-stat strong {
+    color: #172033;
+    font-size: 0.92rem;
+    line-height: 1;
+    font-weight: 900;
+}
+
+.gateway-order-stat em {
+    color: #697386;
+    font-size: 0.68rem;
+    line-height: 1;
+    font-style: normal;
+    font-weight: 800;
+}
+
+.gateway-order-stat--conversion {
+    gap: 4px;
+}
+
+.gateway-order-stat--conversion i {
+    width: 100%;
+    height: 5px;
+    display: block;
+    border-radius: 999px;
+    background: #e7edf6;
+    overflow: hidden;
+}
+
+.gateway-order-stat--conversion b {
+    width: 0%;
+    height: 100%;
+    display: block;
+    border-radius: inherit;
+    background: linear-gradient(90deg, #00b6ad 0%, #00d5b0 100%);
+    transition: width 0.2s ease;
 }
 
 .gateway-order-state {
@@ -5614,6 +5671,10 @@ body.modal-open {
     .gateway-order-item {
         grid-template-columns: 30px 20px minmax(0, 1fr) auto 32px 32px;
         gap: 6px;
+    }
+    .gateway-order-stats {
+        grid-column: 1 / -1;
+        grid-template-columns: repeat(3, minmax(0, 1fr));
     }
     .gateway-order-state {
         padding: 5px 7px;
