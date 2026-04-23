@@ -35,6 +35,11 @@ const {
 } = require('../../lib/atomopay-status');
 
 function resolveGateway(rawBody = {}, payments = {}) {
+    const candidates = resolveGatewayCandidates(rawBody, payments);
+    return candidates[0] || '';
+}
+
+function resolveGatewayCandidates(rawBody = {}, payments = {}) {
     const requested = rawBody.gateway || rawBody.paymentGateway || payments.activeGateway;
     const priority = getGatewayPriority(requested, payments.activeGateway);
     const isEnabled = (gateway) => (payments?.gateways?.[gateway] || {}).enabled === true;
@@ -47,25 +52,35 @@ function resolveGateway(rawBody = {}, payments = {}) {
         return false;
     };
 
+    const enabledWithCredentials = [];
     for (const gateway of priority) {
-        if (!isEnabled(gateway)) continue;
-        if (hasGatewayCredentials(gateway)) return gateway;
+        if (isEnabled(gateway) && hasGatewayCredentials(gateway)) {
+            enabledWithCredentials.push(gateway);
+        }
+    }
+    if (enabledWithCredentials.length > 0) {
+        return enabledWithCredentials;
     }
 
+    const enabledGateways = [];
     for (const gateway of priority) {
-        if (isEnabled(gateway)) return gateway;
+        if (isEnabled(gateway)) enabledGateways.push(gateway);
+    }
+    if (enabledGateways.length > 0) {
+        return enabledGateways;
     }
 
     const allDisabled = priority.every((gateway) => !isEnabled(gateway));
     if (allDisabled) {
         const operationalFallback = ['ghostspay', 'sunize', 'paradise', 'atomopay'];
+        const credentialFallbacks = [];
         for (const gateway of operationalFallback) {
-            if (hasGatewayCredentials(gateway)) return gateway;
+            if (hasGatewayCredentials(gateway)) credentialFallbacks.push(gateway);
         }
-        return 'ghostspay';
+        return credentialFallbacks.length > 0 ? credentialFallbacks : ['ghostspay'];
     }
 
-    return '';
+    return [];
 }
 
 function hasGhostspayCredentials(config = {}) {
@@ -889,8 +904,9 @@ module.exports = async (req, res) => {
         } catch (_error) {
             return res.status(503).json({ error: 'Configuracao de pagamentos indisponivel. Tente novamente.' });
         }
-        const gateway = resolveGateway(rawBody, payments);
-        const gatewayConfig = payments?.gateways?.[gateway] || {};
+        const gatewayCandidates = resolveGatewayCandidates(rawBody, payments);
+        let gateway = gatewayCandidates[0] || resolveGateway(rawBody, payments);
+        let gatewayConfig = payments?.gateways?.[gateway] || {};
 
         const { amount, personal = {}, address = {}, extra = {}, shipping = {}, reward: rawReward = null, bump, upsell = null } = rawBody;
         const value = toBrlAmount(amount);
@@ -992,16 +1008,28 @@ module.exports = async (req, res) => {
             });
         }
 
-        const reusable = await findReusablePixBySession({
-            sessionId,
-            gateway,
-            gatewayConfig,
-            totalAmount,
-            shippingId: String(normalizedShipping?.id || '').trim(),
-            rewardId: String(normalizedReward?.id || '').trim(),
-            upsellEnabled
-        });
+        let reusable = null;
+        let reusableGateway = gateway;
+        for (const candidateGateway of gatewayCandidates.length ? gatewayCandidates : [gateway]) {
+            const candidateConfig = payments?.gateways?.[candidateGateway] || {};
+            const candidateReusable = await findReusablePixBySession({
+                sessionId,
+                gateway: candidateGateway,
+                gatewayConfig: candidateConfig,
+                totalAmount,
+                shippingId: String(normalizedShipping?.id || '').trim(),
+                rewardId: String(normalizedReward?.id || '').trim(),
+                upsellEnabled
+            });
+            if (candidateReusable) {
+                reusable = candidateReusable;
+                reusableGateway = candidateGateway;
+                break;
+            }
+        }
         if (reusable) {
+            gateway = reusableGateway;
+            gatewayConfig = payments?.gateways?.[gateway] || {};
             // Reused PIX should still ensure UTMify has the pending order snapshot.
             const reusableTxid = String(reusable.idTransaction || '').trim();
             const reusableUtmJob = {
@@ -1050,11 +1078,48 @@ module.exports = async (req, res) => {
             let statusRaw = '';
             let externalId = '';
             let providerSnapshot = null;
+            const gatewayFailures = [];
+            const rememberGatewayFailure = (failedGateway, code, failedResponse = null, failedData = null) => {
+                const statusCode = Number(failedResponse?.status || 0);
+                const detail = String(
+                    failedData?.error ||
+                    failedData?.message ||
+                    failedData?.status ||
+                    failedData?.detail ||
+                    ''
+                ).slice(0, 240);
+                gatewayFailures.push({
+                    gateway: failedGateway,
+                    code,
+                    statusCode,
+                    detail
+                });
+                createInflightError = new Error(code);
+                console.warn('[pix] gateway create attempt failed', {
+                    gateway: failedGateway,
+                    code,
+                    status: statusCode,
+                    detail
+                });
+            };
 
-            if (gateway === 'ghostspay') {
+            for (const candidateGateway of gatewayCandidates.length ? gatewayCandidates : [gateway]) {
+                gateway = candidateGateway;
+                gatewayConfig = payments?.gateways?.[gateway] || {};
+                response = null;
+                data = null;
+                txid = '';
+                paymentCode = '';
+                paymentCodeBase64 = '';
+                paymentQrUrl = '';
+                statusRaw = '';
+                externalId = '';
+                providerSnapshot = null;
+
+                if (gateway === 'ghostspay') {
                 if (!hasGhostspayCredentials(gatewayConfig)) {
-                    createInflightError = new Error('ghostspay_missing_credentials');
-                    return res.status(500).json({ error: 'Credenciais GhostsPay nao configuradas.' });
+                    rememberGatewayFailure(gateway, 'ghostspay_missing_credentials');
+                    continue;
                 }
 
             const ghostItems = items.map((item) => ({
@@ -1107,11 +1172,8 @@ module.exports = async (req, res) => {
 
                 ({ response, data } = await requestGhostspayCreate(gatewayConfig, ghostPayload));
                 if (!response?.ok) {
-                    createInflightError = new Error('ghostspay_create_failed');
-                    return res.status(response?.status || 502).json({
-                        error: 'Falha ao gerar o PIX.',
-                        detail: data
-                    });
+                    rememberGatewayFailure(gateway, 'ghostspay_create_failed', response, data);
+                    continue;
                 }
 
                 const ghostData = resolveGhostspayResponse(data);
@@ -1145,8 +1207,8 @@ module.exports = async (req, res) => {
                 }
             } else if (gateway === 'sunize') {
                 if (!hasSunizeCredentials(gatewayConfig)) {
-                    createInflightError = new Error('sunize_missing_credentials');
-                    return res.status(500).json({ error: 'Credenciais Sunize nao configuradas.' });
+                    rememberGatewayFailure(gateway, 'sunize_missing_credentials');
+                    continue;
                 }
 
                 const documentType = resolveDocumentType(cpf);
@@ -1237,18 +1299,12 @@ module.exports = async (req, res) => {
                     }
                 }
                 if (!response?.ok) {
-                    createInflightError = new Error('sunize_create_failed');
-                    return res.status(response?.status || 502).json({
-                        error: 'Falha ao gerar o PIX.',
-                        detail: data
-                    });
+                    rememberGatewayFailure(gateway, 'sunize_create_failed', response, data);
+                    continue;
                 }
                 if (data?.hasError === true) {
-                    createInflightError = new Error('sunize_create_error');
-                    return res.status(502).json({
-                        error: 'Falha ao gerar o PIX.',
-                        detail: data
-                    });
+                    rememberGatewayFailure(gateway, 'sunize_create_error', response, data);
+                    continue;
                 }
 
                 const sunizeData = resolveSunizeResponse(data);
@@ -1260,12 +1316,12 @@ module.exports = async (req, res) => {
                 externalId = sunizeData.externalId || externalId;
             } else if (gateway === 'paradise') {
                 if (!hasParadiseCredentials(gatewayConfig)) {
-                    createInflightError = new Error('paradise_missing_credentials');
                     console.error('[pix] paradise missing credentials', {
                         hasApiKey: Boolean(String(gatewayConfig.apiKey || '').trim()),
                         baseUrl: String(gatewayConfig.baseUrl || '').trim()
                     });
-                    return res.status(500).json({ error: 'Credenciais Paradise nao configuradas.' });
+                    rememberGatewayFailure(gateway, 'paradise_missing_credentials');
+                    continue;
                 }
 
                 const paradiseReferenceBase = upsellEnabled ? `${orderId}-upsell` : orderId;
@@ -1312,7 +1368,6 @@ module.exports = async (req, res) => {
 
                 ({ response, data } = await requestParadiseCreate(gatewayConfig, paradisePayload));
                 if (!response?.ok || data?.success === false || String(data?.status || '').toLowerCase() === 'error') {
-                    createInflightError = new Error('paradise_create_failed');
                     console.error('[pix] paradise create failed', {
                         status: Number(response?.status || 0),
                         detail: data?.error || data?.message || data?.status || '',
@@ -1321,10 +1376,8 @@ module.exports = async (req, res) => {
                         source: String(paradisePayload.source || '').trim(),
                         hasTracking: Boolean(paradisePayload.tracking && Object.keys(paradisePayload.tracking).length)
                     });
-                    return res.status(response?.status || 502).json({
-                        error: 'Falha ao gerar o PIX.',
-                        detail: data
-                    });
+                    rememberGatewayFailure(gateway, 'paradise_create_failed', response, data);
+                    continue;
                 }
 
                 const paradiseData = resolveParadiseResponse(data);
@@ -1371,14 +1424,14 @@ module.exports = async (req, res) => {
                     offerHash: atomopayProduct.offerHash,
                     productHash: atomopayProduct.productHash
                 })) {
-                    createInflightError = new Error('atomopay_missing_credentials');
                     console.error('[pix] atomopay missing credentials', {
                         hasApiToken: Boolean(String(gatewayConfig.apiToken || '').trim()),
                         hasOfferHash: Boolean(String(atomopayProduct.offerHash || '').trim()),
                         hasProductHash: Boolean(String(atomopayProduct.productHash || '').trim()),
                         variant: atomopayProduct.variant
                     });
-                    return res.status(500).json({ error: 'Credenciais AtomoPay nao configuradas.' });
+                    rememberGatewayFailure(gateway, 'atomopay_missing_credentials');
+                    continue;
                 }
 
                 const atomopayTracking = buildAtomopayTrackingFields(rawBody);
@@ -1428,16 +1481,13 @@ module.exports = async (req, res) => {
 
                 ({ response, data } = await requestAtomopayCreate(gatewayConfig, atomopayPayload));
                 if (!response?.ok || data?.success === false) {
-                    createInflightError = new Error('atomopay_create_failed');
                     console.error('[pix] atomopay create failed', {
                         status: Number(response?.status || 0),
                         detail: data?.error || data?.message || data?.status || '',
                         variant: atomopayProduct.variant
                     });
-                    return res.status(response?.status || 502).json({
-                        error: 'Falha ao gerar o PIX.',
-                        detail: data
-                    });
+                    rememberGatewayFailure(gateway, 'atomopay_create_failed', response, data);
+                    continue;
                 }
 
                 const atomopayData = resolveAtomopayResponse(data);
@@ -1483,21 +1533,31 @@ module.exports = async (req, res) => {
                     providerSnapshot.status = statusRaw || providerSnapshot.status;
                 }
             } else {
-                createInflightError = new Error('gateway_unavailable');
-                return res.status(503).json({
-                    error: 'Nenhum gateway PIX valido disponivel para gerar a cobranca.',
-                    detail: {
-                        requestedGateway: normalizeActiveGatewayId(rawBody.gateway || rawBody.paymentGateway || payments?.activeGateway),
-                        selectedGateway: gateway
-                    }
-                });
+                rememberGatewayFailure(gateway, 'gateway_unavailable');
+                continue;
             }
 
-            if (!txid) {
-                createInflightError = new Error('missing_txid');
-                return res.status(502).json({
-                    error: 'Gateway retornou PIX sem identificador de transacao.',
-                    detail: data
+                if (!txid) {
+                    rememberGatewayFailure(gateway, 'missing_txid', response, data);
+                    continue;
+                }
+                if (!paymentCode && !paymentCodeBase64 && !paymentQrUrl) {
+                    rememberGatewayFailure(gateway, 'missing_pix_visual', response, data);
+                    continue;
+                }
+                break;
+            }
+
+            if (!txid || (!paymentCode && !paymentCodeBase64 && !paymentQrUrl)) {
+                const lastFailure = gatewayFailures[gatewayFailures.length - 1] || {};
+                const statusCode = Number(lastFailure.statusCode || 0);
+                createInflightError = createInflightError || new Error(lastFailure.code || 'pix_create_failed');
+                return res.status(statusCode >= 500 ? statusCode : 502).json({
+                    error: 'Falha ao gerar o PIX em todos os gateways disponiveis.',
+                    detail: {
+                        requestedGateway: normalizeActiveGatewayId(rawBody.gateway || rawBody.paymentGateway || payments?.activeGateway),
+                        attempts: gatewayFailures
+                    }
                 });
             }
 
