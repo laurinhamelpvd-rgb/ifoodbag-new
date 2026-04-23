@@ -189,11 +189,55 @@ function resolveAtomopayProductConfig(gatewayConfig = {}, shipping = {}, upsellE
     };
 }
 
-function resolveAtomopayItemTitle(shipping = {}, upsellEnabled = false, upsell = null) {
+function resolveAtomopayItemTitle(shipping = {}, upsellEnabled = false, upsell = null, reward = null, bump = null) {
     if (upsellEnabled) {
         return pickText(upsell?.title, shipping?.name, 'Pedido iFood Bag - Upsell');
     }
+    const hasRewardCharge = Number(reward?.extraPrice || 0) > 0;
+    const hasBumpCharge = Number(bump?.price || 0) > 0 || bump?.selected === true;
+    if (hasRewardCharge || hasBumpCharge) {
+        return 'Pedido iFood Bag';
+    }
     return pickText(shipping?.name, 'Pedido iFood Bag');
+}
+
+function redactUrlSecrets(value = '') {
+    const text = String(value || '').trim();
+    if (!text) return '';
+    try {
+        const url = new URL(text);
+        ['token', 'api_token', 'apiToken', 'secret'].forEach((key) => {
+            if (url.searchParams.has(key)) url.searchParams.set(key, '__SECRET_SET__');
+        });
+        return url.toString();
+    } catch (_error) {
+        return text.replace(/([?&](?:token|api_token|apiToken|secret)=)[^&]+/gi, '$1__SECRET_SET__');
+    }
+}
+
+function sanitizeAtomopayCreatePayload(payload = {}) {
+    const body = asObject(payload);
+    return {
+        ...body,
+        postback_url: redactUrlSecrets(body.postback_url)
+    };
+}
+
+function sanitizeAtomopayCreateResponse(data = {}) {
+    const root = asObject(data);
+    const nested = asObject(root.data);
+    const source = Object.keys(nested).length ? nested : root;
+    return {
+        success: root.success,
+        hash: pickText(source.hash, root.hash, root.transaction_hash, root.transactionHash),
+        status: pickText(source.status, root.status),
+        amount: source.amount ?? root.amount ?? null,
+        payment_method: pickText(source.payment_method, source.paymentMethod, root.payment_method, root.paymentMethod),
+        qr_code: pickText(source.qr_code, source.qrCode, root.qr_code, root.qrCode),
+        pix_code: pickText(source.pix_code, source.pixCode, root.pix_code, root.pixCode),
+        expires_at: pickText(source.expires_at, source.expiresAt, root.expires_at, root.expiresAt),
+        created_at: pickText(source.created_at, source.createdAt, root.created_at, root.createdAt)
+    };
 }
 
 function sanitizeEventId(value = '', maxLen = 120) {
@@ -1005,6 +1049,7 @@ module.exports = async (req, res) => {
             let paymentQrUrl = '';
             let statusRaw = '';
             let externalId = '';
+            let providerSnapshot = null;
 
             if (gateway === 'ghostspay') {
                 if (!hasGhostspayCredentials(gatewayConfig)) {
@@ -1337,6 +1382,7 @@ module.exports = async (req, res) => {
                 }
 
                 const atomopayTracking = buildAtomopayTrackingFields(rawBody);
+                const amountCents = Math.max(1, Math.round(totalAmount * 100));
                 const atomopayCustomer = {
                     name,
                     email,
@@ -1352,15 +1398,18 @@ module.exports = async (req, res) => {
                 if (zipCode) atomopayCustomer.zip_code = zipCode;
 
                 const atomopayPayload = {
-                    amount: Math.max(1, Math.round(totalAmount * 100)),
+                    amount: amountCents,
                     offer_hash: atomopayProduct.offerHash,
                     payment_method: 'pix',
                     customer: atomopayCustomer,
                     cart: [
                         {
                             product_hash: atomopayProduct.productHash,
-                            title: resolveAtomopayItemTitle(normalizedShipping, upsellEnabled, upsell),
-                            price: Math.max(1, Math.round(totalAmount * 100)),
+                            title: resolveAtomopayItemTitle(normalizedShipping, upsellEnabled, upsell, {
+                                ...normalizedReward,
+                                extraPrice: rewardExtraPrice
+                            }, normalizedBump),
+                            price: amountCents,
                             quantity: 1,
                             operation_type: 1,
                             tangible: false
@@ -1368,7 +1417,10 @@ module.exports = async (req, res) => {
                     ],
                     expire_in_days: 2,
                     transaction_origin: 'api',
-                    postback_url: resolveAtomopayPostbackUrl(req, gatewayConfig)
+                    postback_url: resolveAtomopayPostbackUrl(req, gatewayConfig, {
+                        order_id: orderId,
+                        session_id: sessionId || orderId
+                    })
                 };
                 if (Object.keys(atomopayTracking).length > 0) {
                     atomopayPayload.tracking = atomopayTracking;
@@ -1396,6 +1448,17 @@ module.exports = async (req, res) => {
                 paymentQrUrl = atomopayData.paymentQrUrl;
                 statusRaw = atomopayData.status || getAtomopayStatus(data) || 'pending';
                 let atomopayHydrateDebug = null;
+                providerSnapshot = {
+                    gateway: 'atomopay',
+                    hash: txid,
+                    status: statusRaw || 'pending',
+                    amountCents,
+                    offerHash: atomopayProduct.offerHash,
+                    productHash: atomopayProduct.productHash,
+                    variant: atomopayProduct.variant,
+                    createPayload: sanitizeAtomopayCreatePayload(atomopayPayload),
+                    createResponse: sanitizeAtomopayCreateResponse(data || {})
+                };
 
                 if (txid && !paymentCode && !paymentCodeBase64 && !paymentQrUrl) {
                     const hydrated = await hydrateAtomopayVisual(gatewayConfig, txid, 4);
@@ -1414,6 +1477,10 @@ module.exports = async (req, res) => {
                         createShape: atomopayCreateShape,
                         hydratedDebug: atomopayHydrateDebug
                     });
+                }
+                if (providerSnapshot) {
+                    providerSnapshot.hash = txid || providerSnapshot.hash;
+                    providerSnapshot.status = statusRaw || providerSnapshot.status;
                 }
             } else {
                 createInflightError = new Error('gateway_unavailable');
@@ -1463,6 +1530,7 @@ module.exports = async (req, res) => {
                 paymentCode: paymentCode || undefined,
                 paymentCodeBase64: paymentCodeBase64 || undefined,
                 paymentQrUrl: paymentQrUrl || undefined,
+                ...(providerSnapshot ? { atomopay: providerSnapshot } : {}),
                 pix: {
                     ...asObject(rawBody?.pix),
                     idTransaction: txid,

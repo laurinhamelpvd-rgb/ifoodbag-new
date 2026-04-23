@@ -3669,6 +3669,25 @@ function isReconcileLifecycleRegression(previousEvent, nextEvent) {
     return nextRank < prevRank;
 }
 
+function buildAtomopayReconcilePayloadPatch(basePayload, result = {}) {
+    if (result?.gateway !== 'atomopay') return {};
+    const current = asObject(asObject(basePayload).atomopay);
+    const amount = Number(result.amount || 0);
+    return {
+        atomopay: {
+            ...current,
+            gateway: 'atomopay',
+            hash: String(result.txid || current.hash || '').trim(),
+            status: String(result.statusRaw || current.status || '').trim(),
+            amountCents: Number.isFinite(amount) && amount > 0
+                ? Math.round(amount * 100)
+                : current.amountCents,
+            lastReconciledAt: result.changedAt || new Date().toISOString(),
+            lastStatusResponse: result.transaction || current.lastStatusResponse || null
+        }
+    };
+}
+
 async function inspectPixTransaction({ txid, rowGateway, sessionHint, payments }) {
     const gateway = rowGateway === 'ghostspay'
         ? 'ghostspay'
@@ -3947,7 +3966,8 @@ async function applyPixReconcileEffects(result) {
             undefined,
         pixPaidAt: isPaid ? changedAt : undefined,
         pixRefundedAt: isRefunded ? changedAt : undefined,
-        pixRefusedAt: isRefused ? changedAt : undefined
+        pixRefusedAt: isRefused ? changedAt : undefined,
+        ...buildAtomopayReconcilePayloadPatch(leadData?.payload, result)
     });
     const updateFields = {
         last_event: lastEvent,

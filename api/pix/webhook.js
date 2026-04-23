@@ -103,6 +103,11 @@ function asObject(input) {
     return input && typeof input === 'object' && !Array.isArray(input) ? input : {};
 }
 
+function firstQueryText(value) {
+    const raw = Array.isArray(value) ? value[0] : value;
+    return String(raw || '').trim();
+}
+
 function getLeadCurrentPixTxid(leadData) {
     const payload = asObject(leadData?.payload);
     return String(
@@ -245,7 +250,30 @@ function looksLikeParadiseWebhook(payload = {}) {
     return hasStatus && (hasTx || hasExternal) && hasMarker;
 }
 
+function hasAtomopayDocumentedTransactionKey(payload = {}) {
+    const root = asObject(payload);
+    const nested = asObject(root.data);
+    const transaction = asObject(root.transaction || nested.transaction);
+    const payment = asObject(root.payment || nested.payment);
+    return Boolean(String(
+        root.transaction_hash ||
+        root.transactionHash ||
+        root.hash ||
+        nested.transaction_hash ||
+        nested.transactionHash ||
+        nested.hash ||
+        transaction.transaction_hash ||
+        transaction.transactionHash ||
+        transaction.hash ||
+        payment.transaction_hash ||
+        payment.transactionHash ||
+        payment.hash ||
+        ''
+    ).trim());
+}
+
 function looksLikeAtomopayWebhook(payload = {}) {
+    if (!hasAtomopayDocumentedTransactionKey(payload)) return false;
     const hasTx = !!getAtomopayTxid(payload);
     const status = getAtomopayStatus(payload);
     const hasStatus = Boolean(
@@ -305,7 +333,25 @@ function buildLeadRewardSnapshot(payload = {}) {
     };
 }
 
-function extractGatewayEvent(gateway, body = {}) {
+function buildAtomopayWebhookPayloadPatch(basePayload, evt = {}, rawBody = {}) {
+    if (evt?.gateway !== 'atomopay') return {};
+    const current = asObject(asObject(basePayload).atomopay);
+    const amount = Number(evt.amount || 0);
+    return {
+        atomopay: {
+            ...current,
+            gateway: 'atomopay',
+            hash: String(evt.txid || current.hash || '').trim(),
+            status: String(evt.statusRaw || current.status || '').trim(),
+            amountCents: Number.isFinite(amount) && amount > 0
+                ? Math.round(amount * 100)
+                : current.amountCents,
+            lastWebhook: rawBody
+        }
+    };
+}
+
+function extractGatewayEvent(gateway, body = {}, query = {}) {
     if (gateway === 'sunize') {
         const txid = getSunizeTxid(body);
         const statusRaw = getSunizeStatus(body);
@@ -481,6 +527,10 @@ function extractGatewayEvent(gateway, body = {}) {
         const tracking = asObject(getAtomopayTracking(body));
         const customer = asObject(getAtomopayCustomer(body));
         const sessionOrderId = String(
+            firstQueryText(query?.session_id) ||
+            firstQueryText(query?.sessionId) ||
+            firstQueryText(query?.order_id) ||
+            firstQueryText(query?.orderId) ||
             tracking?.orderId ||
             tracking?.sessionId ||
             tracking?.session_id ||
@@ -651,13 +701,13 @@ function extractGatewayEvent(gateway, body = {}) {
 
 function resolveWebhookGateway(query = {}, body = {}, payments = {}) {
     const requestedRaw = String(query.gateway || query.provider || body.gateway || body.provider || '').trim();
-    if (looksLikeAtomopayWebhook(body)) return 'atomopay';
-    if (looksLikeParadiseWebhook(body)) return 'paradise';
-    if (looksLikeSunizeWebhook(body)) return 'sunize';
-    if (looksLikeGhostspayWebhook(body)) return 'ghostspay';
     if (requestedRaw) {
         return normalizeActiveGatewayId(requestedRaw, payments.activeGateway);
     }
+    if (looksLikeParadiseWebhook(body)) return 'paradise';
+    if (looksLikeSunizeWebhook(body)) return 'sunize';
+    if (looksLikeGhostspayWebhook(body)) return 'ghostspay';
+    if (looksLikeAtomopayWebhook(body)) return 'atomopay';
     return resolveGatewayWithFallback(payments.activeGateway, payments);
 }
 
@@ -692,7 +742,7 @@ module.exports = async (req, res) => {
         return;
     }
 
-    const evt = extractGatewayEvent(gateway, body);
+    const evt = extractGatewayEvent(gateway, body, req.query || {});
     const txid = evt.txid;
     const statusRaw = evt.statusRaw;
     const utmifyStatus = evt.utmifyStatus;
@@ -759,7 +809,8 @@ module.exports = async (req, res) => {
             pixPaidAt: isPaid ? statusChangedAt : undefined,
             pixRefundedAt: isRefunded ? statusChangedAt : undefined,
             pixRefusedAt: isRefused ? statusChangedAt : undefined,
-            lastWebhookSignature: webhookSignature || undefined
+            lastWebhookSignature: webhookSignature || undefined,
+            ...buildAtomopayWebhookPayloadPatch(leadData?.payload, evt, body)
         });
         const upByTx = await updateLeadByPixTxid(txid, {
             last_event: lastEvent,
@@ -780,7 +831,8 @@ module.exports = async (req, res) => {
                     pixPaidAt: isPaid ? statusChangedAt : undefined,
                     pixRefundedAt: isRefunded ? statusChangedAt : undefined,
                     pixRefusedAt: isRefused ? statusChangedAt : undefined,
-                    lastWebhookSignature: webhookSignature || undefined
+                    lastWebhookSignature: webhookSignature || undefined,
+                    ...buildAtomopayWebhookPayloadPatch(bySessionBefore?.payload, evt, body)
                 });
                 await updateLeadBySessionId(sessionOrderId, {
                     last_event: lastEvent,
@@ -823,7 +875,8 @@ module.exports = async (req, res) => {
             pixPaidAt: isPaid ? statusChangedAt : undefined,
             pixRefundedAt: isRefunded ? statusChangedAt : undefined,
             pixRefusedAt: isRefused ? statusChangedAt : undefined,
-            lastWebhookSignature: webhookSignature || undefined
+            lastWebhookSignature: webhookSignature || undefined,
+            ...buildAtomopayWebhookPayloadPatch(leadBefore?.payload, evt, body)
         });
         await updateLeadBySessionId(sessionOrderId, {
             last_event: lastEvent,
@@ -863,7 +916,8 @@ module.exports = async (req, res) => {
                 pixPaidAt: isPaid ? statusChangedAt : undefined,
                 pixRefundedAt: isRefunded ? statusChangedAt : undefined,
                 pixRefusedAt: isRefused ? statusChangedAt : undefined,
-                lastWebhookSignature: webhookSignature || undefined
+                lastWebhookSignature: webhookSignature || undefined,
+                ...buildAtomopayWebhookPayloadPatch(leadData?.payload, evt, body)
             });
             await updateLeadBySessionId(leadData.session_id, {
                 last_event: lastEvent,

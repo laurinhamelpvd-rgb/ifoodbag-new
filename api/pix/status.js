@@ -42,6 +42,7 @@ const {
 const {
     getAtomopayStatus,
     getAtomopayUpdatedAt,
+    getAtomopayAmount,
     hasAtomopayPaidMarker,
     isAtomopayPaidStatus,
     isAtomopayRefundedStatus,
@@ -377,7 +378,25 @@ function isUpsellLead(leadData) {
     return /adiantamento|prioridade|expresso|iof|correios|objeto_grande|objeto grande/.test(shippingName);
 }
 
-function buildPatchFromGatewayStatus(leadData, txid, gateway, statusRaw, nextStatus, changedAtIso) {
+function buildAtomopayStatusPayloadPatch(basePayload, txid, statusRaw, changedAtIso, rawPayload = {}) {
+    const current = asObject(asObject(basePayload).atomopay);
+    const amount = getAtomopayAmount(rawPayload);
+    return {
+        atomopay: {
+            ...current,
+            gateway: 'atomopay',
+            hash: String(txid || current.hash || '').trim(),
+            status: String(statusRaw || current.status || '').trim(),
+            amountCents: Number.isFinite(amount) && amount > 0
+                ? Math.round(amount * 100)
+                : current.amountCents,
+            lastReconciledAt: changedAtIso,
+            lastStatusResponse: rawPayload
+        }
+    };
+}
+
+function buildPatchFromGatewayStatus(leadData, txid, gateway, statusRaw, nextStatus, changedAtIso, rawPayload = {}) {
     const payload = asObject(leadData?.payload);
     return {
         last_event:
@@ -399,7 +418,10 @@ function buildPatchFromGatewayStatus(leadData, txid, gateway, statusRaw, nextSta
             pixStatusChangedAt: changedAtIso,
             pixPaidAt: nextStatus === 'paid' ? (payload.pixPaidAt || changedAtIso) : payload.pixPaidAt || undefined,
             pixRefundedAt: nextStatus === 'refunded' ? (payload.pixRefundedAt || changedAtIso) : payload.pixRefundedAt || undefined,
-            pixRefusedAt: nextStatus === 'refused' ? (payload.pixRefusedAt || changedAtIso) : payload.pixRefusedAt || undefined
+            pixRefusedAt: nextStatus === 'refused' ? (payload.pixRefusedAt || changedAtIso) : payload.pixRefusedAt || undefined,
+            ...(gateway === 'atomopay'
+                ? buildAtomopayStatusPayloadPatch(payload, txid, statusRaw, changedAtIso, rawPayload)
+                : {})
         }
     };
 }
@@ -878,7 +900,7 @@ module.exports = async (req, res) => {
 
     let leadUpdated = false;
     if (!sessionFallbackBlocked && (leadData || sessionId)) {
-        const patch = buildPatchFromGatewayStatus(leadData, txid, gateway, statusRaw, nextStatus, changedAtIso);
+        const patch = buildPatchFromGatewayStatus(leadData, txid, gateway, statusRaw, nextStatus, changedAtIso, data || {});
         let updated = await updateLeadByPixTxid(txid, patch).catch(() => ({ ok: false, count: 0 }));
         if ((!updated?.ok || Number(updated?.count || 0) === 0) && sessionId) {
             const sessionLead = leadData || (await getLeadBySessionId(sessionId).catch(() => ({ ok: false, data: null })))?.data;
