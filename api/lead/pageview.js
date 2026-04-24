@@ -1,4 +1,5 @@
 const { ensurePublicAccess } = require('../../lib/public-access');
+const { upsertLead } = require('../../lib/lead-store');
 const { upsertPageview } = require('../../lib/pageviews-store');
 const { enqueueDispatch, processDispatchQueue } = require('../../lib/dispatch-queue');
 const { getSettings } = require('../../lib/settings-store');
@@ -30,11 +31,24 @@ module.exports = async (req, res) => {
     }
 
     try {
-        const result = await upsertPageview(body.sessionId, body.page).catch((error) => ({
-            ok: false,
-            reason: 'pageview_store_error',
-            detail: error?.message || String(error)
-        }));
+        const [result] = await Promise.all([
+            upsertPageview(body.sessionId, body.page).catch((error) => ({
+                ok: false,
+                reason: 'pageview_store_error',
+                detail: error?.message || String(error)
+            })),
+            upsertLead({
+                sessionId: body.sessionId,
+                event: 'pageview',
+                stage: body.page || '',
+                page: body.page || '',
+                sourceUrl: body.sourceUrl || '',
+                utm: body.utm || {},
+                fbclid: body.fbclid || body?.utm?.fbclid || '',
+                fbp: body.fbp || '',
+                fbc: body.fbc || ''
+            }, req).catch(() => null)
+        ]);
 
         let shouldProcessQueue = false;
         const settings = await getSettings().catch(() => ({}));
