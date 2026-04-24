@@ -3969,6 +3969,10 @@ function initAdmin() {
     const salesPositioningList = document.getElementById('sales-positioning-list');
     const salesCityList = document.getElementById('sales-city-list');
     const salesDeviceList = document.getElementById('sales-device-list');
+    const publicAudienceBuild = document.getElementById('public-audience-build');
+    const publicAudienceStatus = document.getElementById('public-audience-status');
+    const publicAudienceConfidence = document.getElementById('public-audience-confidence');
+    const publicAudienceResult = document.getElementById('public-audience-result');
     const gatewaySalesGrid = document.getElementById('gateway-sales-grid');
     const gatewaySalesBase = document.getElementById('gateway-sales-base');
     const gatewaySalesUpdated = document.getElementById('gateway-sales-updated');
@@ -4214,6 +4218,7 @@ function initAdmin() {
     const wantsPages = !!pagesGrid;
     const wantsBackredirects = !!backredirectGrid;
     const wantsSalesInsights = !!(salesPositioningList || salesCityList || salesDeviceList);
+    const shouldAutoLoadSalesInsights = wantsSalesInsights && adminPage !== 'public';
     const wantsGatewaySales = !!(gatewaySalesGrid || gatewaySalesBody);
 
     const normalizeGatewayKey = (value) => {
@@ -6276,7 +6281,7 @@ function initAdmin() {
         saveOverviewRange();
         syncOverviewRangeUi();
         if (wantsLeads) await loadLeads({ reset: true });
-        if (wantsSalesInsights) await loadSalesInsights();
+        if (shouldAutoLoadSalesInsights) await loadSalesInsights();
         if (wantsGatewaySales) await loadGatewaySales({ keepSelection: true });
     };
 
@@ -6736,17 +6741,110 @@ function initAdmin() {
         }).join('');
     };
 
-    const loadSalesInsights = async () => {
+    const renderPublicAudienceList = (items = [], emptyText = 'Sem dados suficientes.') => {
+        const rows = Array.isArray(items) ? items.filter((item) => Number(item?.count || 0) > 0) : [];
+        if (!rows.length) return `<span>${escapeHtml(emptyText)}</span>`;
+        return rows.slice(0, 5).map((item) => `
+            <span>
+                <strong>${escapeHtml(item?.label || '-')}</strong>
+                ${Number(item?.count || 0)} vendas | ${Number(item?.share || 0).toFixed(1)}%
+            </span>
+        `).join('');
+    };
+
+    const renderPublicAudience = (audience = null) => {
+        if (!publicAudienceResult) return;
+        if (!audience || !Number(audience?.totalPaid || 0)) {
+            publicAudienceResult.innerHTML = '<div class="sales-ranking-empty">Sem vendas pagas suficientes para montar o público ideal.</div>';
+            if (publicAudienceConfidence) publicAudienceConfidence.textContent = 'Sem base';
+            return;
+        }
+
+        const setup = audience?.setup || {};
+        const evidence = audience?.evidence || {};
+        const missing = audience?.missing || {};
+        const notes = Array.isArray(audience?.notes) ? audience.notes : [];
+        const placements = Array.isArray(setup?.placements) && setup.placements.length
+            ? setup.placements.join(', ')
+            : 'Advantage+ placements';
+
+        if (publicAudienceConfidence) publicAudienceConfidence.textContent = `Confiança: ${audience.confidence || '-'}`;
+        publicAudienceResult.innerHTML = `
+            <article class="public-audience-card public-audience-card--hero">
+                <span>Nome do público</span>
+                <strong>${escapeHtml(audience.name || 'Público ideal')}</strong>
+                <em>${Number(audience.totalPaid || 0)} compradores pagos | ${escapeHtml(formatCurrency(Number(audience.totalRevenue || 0)))}</em>
+            </article>
+            <div class="public-audience-grid">
+                <article class="public-audience-card">
+                    <span>Configuração no Meta Ads</span>
+                    <strong>${escapeHtml(setup.objective || 'Vendas')}</strong>
+                    <p>Local da conversão: ${escapeHtml(setup.conversionLocation || 'Site')}</p>
+                    <p>Modo: ${escapeHtml(setup.audienceMode || 'Advantage+ audience')}</p>
+                    <p>Gênero: ${escapeHtml(setup.gender || 'Todos')} | Idioma: ${escapeHtml(setup.language || 'Português (Brasil)')}</p>
+                </article>
+                <article class="public-audience-card">
+                    <span>Idade e dispositivo</span>
+                    <strong>${escapeHtml(setup?.age?.label || '18-65+')}</strong>
+                    <p>${escapeHtml(setup?.age?.note || '')}</p>
+                    <p>Dispositivo: ${escapeHtml(setup.device || 'Todos')}</p>
+                </article>
+                <article class="public-audience-card">
+                    <span>Localização</span>
+                    <strong>${escapeHtml((setup.locations || ['Brasil']).join(', '))}</strong>
+                    <div class="public-audience-stack">${renderPublicAudienceList(evidence.locations || [], 'Sem cidade salva.')}</div>
+                </article>
+                <article class="public-audience-card">
+                    <span>Posicionamentos</span>
+                    <strong>${escapeHtml(placements)}</strong>
+                    <p>${escapeHtml(setup.placementStrategy || '')}</p>
+                    <div class="public-audience-stack">${renderPublicAudienceList(evidence.positionings || [], 'Sem UTM term salvo.')}</div>
+                </article>
+                <article class="public-audience-card">
+                    <span>Detalhamento sugerido</span>
+                    <strong>${escapeHtml((setup.detailedTargeting || []).join(', ') || 'Amplo')}</strong>
+                    <p>${escapeHtml(setup.customAudience || '')}</p>
+                </article>
+                <article class="public-audience-card">
+                    <span>Provas usadas</span>
+                    <div class="public-audience-stack">
+                        <span>Idades: ${renderPublicAudienceList(evidence.ages || [], 'sem nascimento suficiente')}</span>
+                        <span>Dispositivos: ${renderPublicAudienceList(evidence.devices || [], 'sem user agent')}</span>
+                        <span>CEPs: ${renderPublicAudienceList(evidence.cepPrefixes || [], 'sem CEP suficiente')}</span>
+                    </div>
+                </article>
+            </div>
+            <div class="public-audience-warnings">
+                <strong>Dados ignorados por falta de campo</strong>
+                <span>Nascimento: ${Number(missing.birth || 0)} | Cidade: ${Number(missing.city || 0)} | CEP: ${Number(missing.cep || 0)} | Posicionamento: ${Number(missing.positioning || 0)} | Dispositivo: ${Number(missing.device || 0)}</span>
+            </div>
+            <div class="public-audience-notes">
+                ${notes.map((note) => `<span>${escapeHtml(note)}</span>`).join('')}
+            </div>
+        `;
+    };
+
+    const loadSalesInsights = async ({ manual = false } = {}) => {
         if (!wantsSalesInsights) return;
 
         const url = new URL('/api/admin/sales-insights', window.location.origin);
         const activeRange = getActiveOverviewRange();
-        if (activeRange.from) url.searchParams.set('from', activeRange.from);
-        if (activeRange.to) url.searchParams.set('to', activeRange.to);
+        const forceAllPaidAudience = manual && adminPage === 'public';
+        if (!forceAllPaidAudience && activeRange.from) url.searchParams.set('from', activeRange.from);
+        if (!forceAllPaidAudience && activeRange.to) url.searchParams.set('to', activeRange.to);
         url.searchParams.set('max', '80000');
 
-        const res = await adminFetch(url.toString());
-        const payload = await res.json().catch(() => ({}));
+        if (manual && publicAudienceBuild) publicAudienceBuild.disabled = true;
+        if (manual && publicAudienceStatus) publicAudienceStatus.textContent = 'Lendo todos os compradores pagos e calculando público ideal...';
+
+        let res;
+        let payload = {};
+        try {
+            res = await adminFetch(url.toString());
+            payload = await res.json().catch(() => ({}));
+        } finally {
+            if (manual && publicAudienceBuild) publicAudienceBuild.disabled = false;
+        }
         if (!res.ok || payload?.ok === false) {
             renderSalesWinner(salesPositioningWinner, salesPositioningDetail, salesTopPositioningLabel, null);
             renderSalesWinner(salesCityWinner, salesCityDetail, salesTopCityLabel, null);
@@ -6761,6 +6859,8 @@ function initAdmin() {
             if (overviewRangeStatus && hasOverviewRangeControls) {
                 overviewRangeStatus.textContent = payload?.error || 'Falha ao carregar periodo selecionado.';
             }
+            if (manual && publicAudienceStatus) publicAudienceStatus.textContent = payload?.error || 'Falha ao calcular público ideal.';
+            if (manual) renderPublicAudience(null);
             return;
         }
 
@@ -6785,13 +6885,19 @@ function initAdmin() {
         renderSalesRankingList(salesPositioningList, data?.positionings || [], 'Nenhuma venda com posicionamento identificado nesse periodo.');
         renderSalesRankingList(salesCityList, data?.cities || [], 'Nenhuma venda com cidade identificada nesse periodo.');
         renderSalesRankingList(salesDeviceList, data?.devices || [], 'Nenhuma venda com aparelho identificado nesse periodo.');
+        renderPublicAudience(payload?.audience || null);
 
         if (overviewRangeStatus && hasOverviewRangeControls) {
-            overviewRangeStatus.textContent = describeOverviewRange({
-                preset: overviewRange.preset,
-                from: activeRange.from || '',
-                to: activeRange.to || ''
-            });
+            overviewRangeStatus.textContent = forceAllPaidAudience
+                ? 'Período: todos os compradores pagos'
+                : describeOverviewRange({
+                    preset: overviewRange.preset,
+                    from: activeRange.from || '',
+                    to: activeRange.to || ''
+                });
+        }
+        if (manual && publicAudienceStatus) {
+            publicAudienceStatus.textContent = `Cálculo finalizado com ${totalPaid} compradores pagos.`;
         }
     };
 
@@ -7096,7 +7202,7 @@ function initAdmin() {
         if (wantsLeads) await loadLeads({ reset: true });
         if (ipBlacklistBody) await loadIpBlacklist();
         if (wantsPages) await loadPageCounts();
-        if (wantsSalesInsights) await loadSalesInsights();
+        if (shouldAutoLoadSalesInsights) await loadSalesInsights();
         if (wantsGatewaySales) await loadGatewaySales();
         if (wantsBackredirects) await loadBackredirects();
     });
@@ -7121,6 +7227,9 @@ function initAdmin() {
         loadLeads({ reset: true });
     });
     leadsExport?.addEventListener('click', exportLeads);
+    publicAudienceBuild?.addEventListener('click', () => {
+        loadSalesInsights({ manual: true });
+    });
     overviewRangePreset?.addEventListener('change', async () => {
         const selected = String(overviewRangePreset.value || 'all');
         if (selected === 'custom') {
@@ -7137,7 +7246,7 @@ function initAdmin() {
         syncOverviewRangeUi();
         saveOverviewRange();
         if (wantsLeads) await loadLeads({ reset: true });
-        if (wantsSalesInsights) await loadSalesInsights();
+        if (shouldAutoLoadSalesInsights) await loadSalesInsights();
         if (wantsGatewaySales) await loadGatewaySales({ keepSelection: true });
     });
     overviewRangeApply?.addEventListener('click', () => {
@@ -7148,7 +7257,7 @@ function initAdmin() {
         syncOverviewRangeUi();
         saveOverviewRange();
         if (wantsLeads) await loadLeads({ reset: true });
-        if (wantsSalesInsights) await loadSalesInsights();
+        if (shouldAutoLoadSalesInsights) await loadSalesInsights();
         if (wantsGatewaySales) await loadGatewaySales({ keepSelection: true });
     });
     overviewRangeFrom?.addEventListener('change', () => {
@@ -7223,7 +7332,7 @@ function initAdmin() {
             if (wantsLeads) loadLeads({ reset: true });
             if (ipBlacklistBody) loadIpBlacklist();
             if (wantsPages) loadPageCounts();
-            if (wantsSalesInsights) loadSalesInsights();
+            if (shouldAutoLoadSalesInsights) loadSalesInsights();
             if (wantsGatewaySales) loadGatewaySales();
             if (wantsBackredirects) loadBackredirects();
             // Keep overview fresh without manual reload.
@@ -7232,7 +7341,7 @@ function initAdmin() {
                 if (document.visibilityState !== 'visible') return;
                 if (wantsLeads) loadLeads({ reset: true });
                 if (wantsPages) loadPageCounts();
-                if (wantsSalesInsights) loadSalesInsights();
+                if (shouldAutoLoadSalesInsights) loadSalesInsights();
                 if (wantsGatewaySales) loadGatewaySales({ keepSelection: true });
                 if (wantsBackredirects) loadBackredirects();
             }, refreshIntervalMs);

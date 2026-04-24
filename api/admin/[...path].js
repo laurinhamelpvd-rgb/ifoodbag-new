@@ -75,7 +75,7 @@ const {
     isAtomopayChargebackStatus,
     mapAtomopayStatusToUtmify
 } = require('../../lib/atomopay-status');
-const { normalizePaymentHistoryStatus } = require('../../lib/lead-payment-history');
+const { mergePaymentHistory, normalizePaymentHistoryStatus } = require('../../lib/lead-payment-history');
 const { enqueueDispatch, processDispatchQueue } = require('../../lib/dispatch-queue');
 const {
     getIpBlacklist,
@@ -249,7 +249,9 @@ const LEADS_SELECT_FIELDS = [
 ].join(',');
 const SALES_INSIGHTS_SELECT_FIELDS = [
     'last_event',
+    'cep',
     'city',
+    'state',
     'shipping_id',
     'shipping_name',
     'bump_selected',
@@ -2079,6 +2081,50 @@ function resolveSalesDeviceLabel(userAgent = '', payload = {}) {
     return 'PC';
 }
 
+function parseBirthDateToAge(value = '', now = new Date()) {
+    const text = String(value || '').trim();
+    if (!text) return null;
+
+    const parts = text.match(/^(\d{2})\/(\d{2})\/(\d{4})$/);
+    if (!parts) return null;
+
+    const day = Number(parts[1]);
+    const month = Number(parts[2]);
+    const year = Number(parts[3]);
+    if (!day || !month || !year) return null;
+
+    const birth = new Date(Date.UTC(year, month - 1, day));
+    if (
+        birth.getUTCFullYear() !== year ||
+        birth.getUTCMonth() !== month - 1 ||
+        birth.getUTCDate() !== day
+    ) {
+        return null;
+    }
+
+    const today = new Date(now);
+    let age = today.getUTCFullYear() - year;
+    const currentMonth = today.getUTCMonth() + 1;
+    const currentDay = today.getUTCDate();
+    if (currentMonth < month || (currentMonth === month && currentDay < day)) {
+        age -= 1;
+    }
+
+    return age >= 13 && age <= 100 ? age : null;
+}
+
+function resolveMetaAgeBucket(age) {
+    const n = Number(age);
+    if (!Number.isFinite(n)) return null;
+    if (n < 18) return { key: '13-17', label: '13 a 17 anos', min: 13, max: 17 };
+    if (n <= 24) return { key: '18-24', label: '18 a 24 anos', min: 18, max: 24 };
+    if (n <= 34) return { key: '25-34', label: '25 a 34 anos', min: 25, max: 34 };
+    if (n <= 44) return { key: '35-44', label: '35 a 44 anos', min: 35, max: 44 };
+    if (n <= 54) return { key: '45-54', label: '45 a 54 anos', min: 45, max: 54 };
+    if (n <= 64) return { key: '55-64', label: '55 a 64 anos', min: 55, max: 64 };
+    return { key: '65+', label: '65+ anos', min: 65, max: 65 };
+}
+
 function accumulateSalesBucket(map, key, label, { amount = 0, upsell = false, orderBump = false } = {}) {
     const safeKey = String(key || '').trim();
     if (!safeKey) return;
@@ -2147,6 +2193,104 @@ function buildSalesRanking(map, totalPaid = 0, { limit = 10, includeZero = false
         isTopUpsell: !!topUpsellKey && String(row?.key || '') === topUpsellKey,
         isTopOrderBump: !!topOrderBumpKey && String(row?.key || '') === topOrderBumpKey
     }));
+}
+
+function buildMetaAudienceRecommendation({
+    totalPaid = 0,
+    totalRevenue = 0,
+    positionings = [],
+    cities = [],
+    devices = [],
+    ageBuckets = [],
+    states = [],
+    cepPrefixes = [],
+    missing = {}
+} = {}) {
+    const topAge = Array.isArray(ageBuckets) ? ageBuckets[0] : null;
+    const topDevice = Array.isArray(devices) ? devices.find((item) => Number(item?.count || 0) > 0) : null;
+    const topLocations = Array.isArray(cities) ? cities.slice(0, 5) : [];
+    const topStates = Array.isArray(states) ? states.slice(0, 5) : [];
+    const topPositionings = Array.isArray(positionings) ? positionings.slice(0, 3) : [];
+    const topCepPrefixes = Array.isArray(cepPrefixes) ? cepPrefixes.slice(0, 5) : [];
+    const confidence = totalPaid >= 50 ? 'Alta' : totalPaid >= 15 ? 'Media' : totalPaid > 0 ? 'Inicial' : 'Sem base';
+    const deviceLabel = topDevice?.label || 'Todos os dispositivos';
+    const deviceForMeta = /iphone|android/i.test(deviceLabel)
+        ? 'Mobile'
+        : /pc|desktop/i.test(deviceLabel)
+            ? 'Desktop'
+            : 'Todos';
+    const minAge = topAge?.min || 18;
+    const maxAge = topAge?.max || 65;
+    const ageLabel = topAge
+        ? (topAge.key === '65+' ? '65+ anos' : `${minAge}-${maxAge} anos`)
+        : '18-65+';
+    const primaryLocation = topLocations[0]?.label || topStates[0]?.label || 'Brasil';
+    const audienceNameParts = [
+        primaryLocation,
+        ageLabel,
+        deviceForMeta,
+        topPositionings[0]?.label || ''
+    ].filter(Boolean);
+
+    return {
+        name: audienceNameParts.length
+            ? `Publico ideal - ${audienceNameParts.join(' | ')}`
+            : 'Publico ideal - base paga',
+        confidence,
+        totalPaid,
+        totalRevenue,
+        setup: {
+            objective: 'Vendas',
+            conversionLocation: 'Site',
+            audienceMode: 'Advantage+ audience com sugestoes do perfil vencedor',
+            locations: topLocations.length
+                ? topLocations.map((item) => item.label)
+                : (topStates.length ? topStates.map((item) => item.label) : ['Brasil']),
+            age: {
+                label: ageLabel,
+                min: topAge?.min || 18,
+                max: topAge?.max || 65,
+                note: topAge
+                    ? `${topAge.count} vendas (${Number(topAge.share || 0).toFixed(1)}% da base paga com idade calculada).`
+                    : 'Sem data de nascimento suficiente; use 18-65+ ate juntar mais vendas.'
+            },
+            gender: 'Todos',
+            language: 'Portugues (Brasil)',
+            device: deviceForMeta,
+            placements: topPositionings.map((item) => item.label),
+            placementStrategy: topPositionings.length
+                ? 'Use Advantage+ placements no conjunto principal e replique os 3 posicionamentos vencedores em teste manual separado.'
+                : 'Use Advantage+ placements ate existirem UTMs de posicionamento suficientes.',
+            detailedTargeting: [
+                'iFood',
+                'Entregador',
+                'Delivery',
+                'Motocicleta',
+                'Renda extra'
+            ],
+            customAudience: 'Criar publico personalizado com todos os compradores pagos e um lookalike de 1% no Brasil.'
+        },
+        evidence: {
+            ages: ageBuckets,
+            locations: topLocations,
+            states: topStates,
+            cepPrefixes: topCepPrefixes,
+            devices,
+            positionings: topPositionings
+        },
+        missing: {
+            birth: Number(missing.birth || 0),
+            city: Number(missing.city || 0),
+            cep: Number(missing.cep || 0),
+            positioning: Number(missing.positioning || 0),
+            device: Number(missing.device || 0)
+        },
+        notes: [
+            'Meta permite configurar localizacao, idade, genero, idioma, detalhamento, publico personalizado/lookalike, posicionamentos e dispositivo em posicionamento manual.',
+            'O conjunto principal deve ficar amplo o suficiente para o algoritmo aprender; os vencedores daqui entram como sugestoes e testes controlados.',
+            'Idade vem da data de nascimento salva no lead pago; localizacao vem de cidade/estado/CEP; dispositivo vem do user agent; posicionamento vem do utm_term.'
+        ]
+    };
 }
 
 function resolveLeadRewardInfo(row, payload) {
@@ -2706,28 +2850,42 @@ async function listLeadTxidsForReconcile({
 
         rows.forEach((row) => {
             const payload = asObject(row?.payload);
-            const fallbackTxid = String(
-                payload?.pixTxid ||
-                payload?.pix?.idTransaction ||
-                payload?.pix?.idtransaction ||
-                payload?.idTransaction ||
-                payload?.idtransaction ||
-                payload?.id ||
-                ''
-            ).trim();
-            const txid = String(row?.pix_txid || fallbackTxid || '').trim();
-            if (!txid || txid === '-') return;
-
             const gateway = resolveLeadGateway(row, payload);
-            const key = `${gateway}:${txid}`;
-            if (seen.has(key)) return;
-            seen.add(key);
-            entries.push({
-                txid,
-                gateway,
-                sessionId: String(row?.session_id || payload?.sessionId || payload?.orderId || '').trim(),
-                sortAt: resolveReconcileSortAt(row, payload) || ''
-            });
+            const txidCandidates = [
+                row?.pix_txid,
+                payload?.pixTxid,
+                payload?.pix?.idTransaction,
+                payload?.pix?.idtransaction,
+                payload?.idTransaction,
+                payload?.idtransaction,
+                payload?.id
+            ];
+            if (gateway === 'paradise') {
+                txidCandidates.push(payload?.pix?.txid);
+            }
+            if (Array.isArray(payload?.paymentHistory)) {
+                payload.paymentHistory.forEach((item) => {
+                    const historyItem = asObject(item);
+                    if (historyItem?.txid) {
+                        txidCandidates.push(historyItem.txid);
+                    }
+                });
+            }
+
+            txidCandidates
+                .map((value) => String(value || '').trim())
+                .filter((value, index, list) => value && value !== '-' && list.indexOf(value) === index)
+                .forEach((txid) => {
+                    const key = `${gateway}:${txid}`;
+                    if (seen.has(key)) return;
+                    seen.add(key);
+                    entries.push({
+                        txid,
+                        gateway,
+                        sessionId: String(row?.session_id || payload?.sessionId || payload?.orderId || '').trim(),
+                        sortAt: resolveReconcileSortAt(row, payload) || ''
+                    });
+                });
         });
 
         if (rows.length < limit) {
@@ -3366,15 +3524,26 @@ async function getSalesInsights(req, res) {
 
     const positioningMap = new Map();
     const cityMap = new Map();
+    const stateMap = new Map();
+    const ageMap = new Map();
+    const cepPrefixMap = new Map();
     const deviceMap = new Map([
         ['iphone', { key: 'iphone', label: 'iPhone', count: 0, amount: 0 }],
         ['android', { key: 'android', label: 'Android', count: 0, amount: 0 }],
         ['pc', { key: 'pc', label: 'PC', count: 0, amount: 0 }]
     ]);
+    const missingAudience = {
+        birth: 0,
+        city: 0,
+        cep: 0,
+        positioning: 0,
+        device: 0
+    };
 
     let totalPaid = 0;
     let totalRevenue = 0;
     let lastSaleAt = null;
+    const now = new Date();
 
     (Array.isArray(result.rows) ? result.rows : []).forEach((row) => {
         const payload = asObject(row?.payload);
@@ -3406,6 +3575,8 @@ async function getSalesInsights(req, res) {
                 upsell: hasUpsell,
                 orderBump: hasOrderBump
             });
+        } else {
+            missingAudience.positioning += 1;
         }
 
         const cityLabel = normalizeCityLabel(row, payload);
@@ -3416,6 +3587,43 @@ async function getSalesInsights(req, res) {
                 upsell: hasUpsell,
                 orderBump: hasOrderBump
             });
+        } else {
+            missingAudience.city += 1;
+        }
+
+        const address = asObject(payload?.address);
+        const stateLabel = normalizeSalesLabel(row?.state || address?.state || '', '').toUpperCase();
+        if (stateLabel) {
+            accumulateSalesBucket(stateMap, stateLabel.toLowerCase(), stateLabel, {
+                amount,
+                upsell: hasUpsell,
+                orderBump: hasOrderBump
+            });
+        }
+
+        const cepDigits = String(row?.cep || address?.cep || '').replace(/\D/g, '');
+        if (cepDigits.length >= 5) {
+            const cepPrefix = `${cepDigits.slice(0, 5)}***`;
+            accumulateSalesBucket(cepPrefixMap, cepPrefix, cepPrefix, {
+                amount,
+                upsell: hasUpsell,
+                orderBump: hasOrderBump
+            });
+        } else {
+            missingAudience.cep += 1;
+        }
+
+        const birth = String(payload?.personal?.birth || payload?.birth || '').trim();
+        const age = parseBirthDateToAge(birth, now);
+        const ageBucket = resolveMetaAgeBucket(age);
+        if (ageBucket) {
+            accumulateSalesBucket(ageMap, ageBucket.key, ageBucket.label, {
+                amount,
+                upsell: hasUpsell,
+                orderBump: hasOrderBump
+            });
+        } else {
+            missingAudience.birth += 1;
         }
 
         const deviceLabel = resolveSalesDeviceLabel(row?.user_agent, payload);
@@ -3429,6 +3637,9 @@ async function getSalesInsights(req, res) {
             upsell: hasUpsell,
             orderBump: hasOrderBump
         });
+        if (!String(row?.user_agent || payload?.metadata?.user_agent || '').trim()) {
+            missingAudience.device += 1;
+        }
 
         const eventTime = mapped?.event_time || row?.updated_at || row?.created_at || null;
         const currentTs = lastSaleAt ? Date.parse(lastSaleAt) : 0;
@@ -3440,7 +3651,21 @@ async function getSalesInsights(req, res) {
 
     const positionings = buildSalesRanking(positioningMap, totalPaid, { limit: 8 });
     const cities = buildSalesRanking(cityMap, totalPaid, { limit: 10 });
+    const states = buildSalesRanking(stateMap, totalPaid, { limit: 8 });
+    const ageBuckets = buildSalesRanking(ageMap, totalPaid, { limit: 8 });
+    const cepPrefixes = buildSalesRanking(cepPrefixMap, totalPaid, { limit: 8 });
     const devices = buildSalesRanking(deviceMap, totalPaid, { limit: 3, includeZero: true });
+    const audience = buildMetaAudienceRecommendation({
+        totalPaid,
+        totalRevenue,
+        positionings,
+        cities,
+        devices,
+        states,
+        ageBuckets,
+        cepPrefixes,
+        missing: missingAudience
+    });
 
     res.status(200).json({
         ok: true,
@@ -3461,8 +3686,12 @@ async function getSalesInsights(req, res) {
         data: {
             positionings,
             cities,
+            states,
+            ageBuckets,
+            cepPrefixes,
             devices
-        }
+        },
+        audience
     });
 }
 
@@ -4397,6 +4626,14 @@ function classifyReconcileBucket(utmifyStatus = '') {
     return 'failed';
 }
 
+function deriveSessionIdFromGatewayReference(value = '') {
+    let text = String(value || '').trim();
+    if (!text) return '';
+    text = text.replace(/-\d{10,}$/, '');
+    text = text.replace(/-upsell$/, '');
+    return text;
+}
+
 function reconcileLifecycleRank(eventName) {
     const name = String(eventName || '').trim().toLowerCase();
     if (!name) return 0;
@@ -4564,11 +4801,15 @@ async function inspectPixTransaction({ txid, rowGateway, sessionHint, payments }
                 toIsoDate(data?.timestamp) ||
                 toIsoDate(data?.updated_at) ||
                 new Date().toISOString();
+            const paradiseExternalId = getParadiseExternalId(data);
             sessionIdFallback = String(
-                getParadiseExternalId(data) ||
+                data?.metadata?.sessionId ||
+                data?.tracking?.sessionId ||
                 data?.metadata?.orderId ||
                 data?.tracking?.orderId ||
                 sessionIdFallback ||
+                deriveSessionIdFromGatewayReference(paradiseExternalId) ||
+                paradiseExternalId ||
                 ''
             ).trim();
             amount = getParadiseAmount(data);
@@ -4690,8 +4931,13 @@ async function applyPixReconcileEffects(result) {
     if (isReconcileLifecycleRegression(previousLastEvent, lastEvent)) {
         return { ok: true, updatedRows: 0, leadData, skippedRegression: true };
     }
+    const leadPayloadBefore = asObject(leadData?.payload);
+    const currentLeadTxid = resolveLeadCurrentPixTxid(leadData, leadPayloadBefore);
+    const paymentStep = currentLeadTxid && String(currentLeadTxid) !== String(txid)
+        ? 'front'
+        : (resolveLeadChargeStep(leadData || {}, leadPayloadBefore) || 'front');
 
-    const payloadPatch = mergeLeadPayload(leadData?.payload, {
+    let payloadPatch = mergeLeadPayload(leadData?.payload, {
         gateway,
         pixGateway: gateway,
         paymentGateway: gateway,
@@ -4713,6 +4959,38 @@ async function applyPixReconcileEffects(result) {
         pixRefundedAt: isRefunded ? changedAt : undefined,
         pixRefusedAt: isRefused ? changedAt : undefined,
         ...buildAtomopayReconcilePayloadPatch(leadData?.payload, result)
+    });
+    payloadPatch = mergePaymentHistory(payloadPatch, {
+        txid,
+        gateway,
+        status: statusRaw || utmifyStatus || '',
+        step: paymentStep,
+        amount,
+        createdAt:
+            toIsoDate(transaction?.data_registro) ||
+            toIsoDate(transaction?.created_at) ||
+            toIsoDate(transaction?.createdAt) ||
+            toIsoDate(transaction?.data?.created_at) ||
+            toIsoDate(transaction?.data?.createdAt) ||
+            leadData?.created_at ||
+            changedAt,
+        changedAt,
+        shipping: {
+            id: leadData?.shipping_id || payloadPatch?.shipping?.id || '',
+            name: leadData?.shipping_name || payloadPatch?.shipping?.name || '',
+            price: leadData?.shipping_price ?? payloadPatch?.shipping?.price
+        },
+        reward: payloadPatch?.reward || {
+            name: payloadPatch?.rewardName || ''
+        },
+        upsell: payloadPatch?.upsell || null,
+        bump: (leadData?.bump_selected === true || payloadPatch?.bump?.selected === true)
+            ? {
+                selected: true,
+                title: payloadPatch?.bump?.title || 'Seguro Bag',
+                price: leadData?.bump_price ?? payloadPatch?.bump?.price
+            }
+            : null
     });
     const updateFields = {
         last_event: lastEvent,

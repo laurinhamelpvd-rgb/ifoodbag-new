@@ -7,7 +7,7 @@
   <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111111" />
   <meta name="apple-mobile-web-app-capable" content="yes" />
   <meta name="apple-mobile-web-app-status-bar-style" content="default" />
-  <title>iFood Entregadores - Publico</title>
+  <title>iFood Entregadores - Público</title>
   <link rel="preconnect" href="https://fonts.googleapis.com" />
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700&display=swap" rel="stylesheet" />
@@ -30,7 +30,7 @@
         <a class="admin-nav-item" data-admin="utmfy" href="/admin/utmfy">UTMfy</a>
         <a class="admin-nav-item" data-admin="gateways" href="/admin/gateways">Gateways</a>
         <a class="admin-nav-item" data-admin="pages" href="/admin/pages">Paginas</a>
-        <a class="admin-nav-item" data-admin="public" href="/admin/publico">PUBLICO</a>
+        <a class="admin-nav-item" data-admin="public" href="/admin/publico">Público</a>
         <a class="admin-nav-item" data-admin="sales" href="/admin/vendas">Vendas</a>
         <a class="admin-nav-item" data-admin="backredirects" href="/admin/backredirects">Backredirects</a>
         <a class="admin-nav-item" data-admin="leads" href="/admin/leads">Leads</a>
@@ -44,8 +44,8 @@
     <main class="admin-main">
       <header class="admin-topbar">
         <div>
-          <h1>Inteligencia de publico</h1>
-          <p>Descubra o que mais vende por posicionamento, cidade e tipo de aparelho.</p>
+          <h1>Público</h1>
+          <p>Calcule o público ideal para Meta Ads usando todos os leads que pagaram.</p>
         </div>
       </header>
 
@@ -63,19 +63,23 @@
       <div id="admin-panel" class="admin-panel hidden">
         <section class="admin-section admin-section--overview">
           <div class="admin-section-header">
-            <h2>Radar de vendas</h2>
-            <span id="sales-base" class="admin-chip">Base: 0 vendas</span>
+            <h2>Radar de público pago</h2>
+            <span id="sales-base" class="admin-chip">Aguardando cálculo</span>
           </div>
 
           <div class="admin-hero">
             <div class="admin-hero-info">
-              <h3>O que mais converte agora</h3>
-              <p>O ranking considera apenas vendas aprovadas e usa os dados que ja estao salvos no lead, incluindo ticket medio e liderancas de upsell/order bump.</p>
+              <h3>Público ideal para Facebook Ads</h3>
+              <p>Clique para ler todos os leads pagos e montar a recomendação com localização, idade, dispositivo, posicionamentos e sinais que existem no Meta Ads.</p>
               <div class="admin-hero-tags">
                 <span class="admin-tag">Ultima venda: <strong id="sales-updated">-</strong></span>
                 <span class="admin-tag">Posicionamento lider: <strong id="sales-top-positioning-label">-</strong></span>
                 <span class="admin-tag">Cidade lider: <strong id="sales-top-city-label">-</strong></span>
                 <span class="admin-tag">Aparelho lider: <strong id="sales-top-device-label">-</strong></span>
+              </div>
+              <div class="public-audience-actions">
+                <button id="public-audience-build" class="btn-primary" type="button">Calcular público ideal</button>
+                <span id="public-audience-status" class="admin-muted">Nenhum cálculo executado ainda.</span>
               </div>
             </div>
             <div class="admin-hero-highlight">
@@ -127,6 +131,16 @@
               <strong id="sales-device-winner">-</strong>
               <em id="sales-device-detail">Sem vendas ainda</em>
             </div>
+          </div>
+        </section>
+
+        <section class="admin-section public-audience-section">
+          <div class="admin-section-header">
+            <h2>Público ideal pronto para subir</h2>
+            <span id="public-audience-confidence" class="admin-chip">Sem cálculo</span>
+          </div>
+          <div id="public-audience-result" class="public-audience-result">
+            <div class="sales-ranking-empty">Clique em "Calcular público ideal" para montar a campanha com base em todos os compradores pagos.</div>
           </div>
         </section>
 

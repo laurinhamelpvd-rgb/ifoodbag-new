@@ -64,6 +64,14 @@ const {
 } = require('../../lib/atomopay-status');
 const { mergePaymentHistory } = require('../../lib/lead-payment-history');
 
+function deriveSessionIdFromGatewayReference(value = '') {
+    let text = String(value || '').trim();
+    if (!text) return '';
+    text = text.replace(/-\d{10,}$/, '');
+    text = text.replace(/-upsell$/, '');
+    return text;
+}
+
 function normalizeDate(value) {
     if (!value && value !== 0) return null;
     if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
@@ -480,10 +488,14 @@ function extractGatewayEvent(gateway, body = {}, query = {}) {
         const metadata = asObject(body?.metadata);
         const tracking = asObject(body?.tracking);
         const customer = asObject(body?.customer);
+        const paradiseExternalId = getParadiseExternalId(body);
         const sessionOrderId = String(
-            getParadiseExternalId(body) ||
+            metadata?.sessionId ||
+            tracking?.sessionId ||
             metadata?.orderId ||
             tracking?.orderId ||
+            deriveSessionIdFromGatewayReference(paradiseExternalId) ||
+            paradiseExternalId ||
             ''
         ).trim();
         const statusChangedAt =
