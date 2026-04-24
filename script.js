@@ -8648,11 +8648,37 @@ function isVslCompleted() {
     return localStorage.getItem(STORAGE_KEYS.vslCompleted) === '1';
 }
 
+function normalizePixStatusKey(value) {
+    return String(value || '')
+        .trim()
+        .toLowerCase()
+        .replace(/\s+/g, '_')
+        .replace(/-+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+}
+
+function escapePixStatusRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasPixStatusToken(status, tokens = []) {
+    const normalized = normalizePixStatusKey(status);
+    if (!normalized) return false;
+    return tokens.some((token) => {
+        const clean = normalizePixStatusKey(token);
+        if (!clean) return false;
+        return new RegExp(`(?:^|_)${escapePixStatusRegExp(clean)}(?:$|_)`).test(normalized);
+    });
+}
+
 function isPixPaid(pix) {
     if (!pix || typeof pix !== 'object') return false;
     if (pix.upsellPaid === true) return true;
-    const status = String(pix.status || pix.statusRaw || '').toLowerCase();
-    return /paid|approved|confirm|completed|conclu|aprov/.test(status);
+    const status = pix.status || pix.statusRaw || '';
+    if (hasPixStatusToken(status, ['unpaid', 'not_paid', 'nao_pago', 'nao_aprovado', 'unauthorized', 'unconfirmed'])) return false;
+    if (hasPixStatusToken(status, ['refund', 'refunded', 'estorno', 'reembolsado', 'refused', 'recusado', 'failed', 'failure', 'cancel', 'cancelled', 'canceled', 'expired', 'expirado', 'chargeback', 'chargedback', 'declined', 'rejected'])) return false;
+    return hasPixStatusToken(status, ['paid', 'pago', 'authorized', 'approved', 'aprovado', 'confirmed', 'confirmado', 'completed', 'concluido', 'concluida', 'success', 'successful']);
 }
 
 function resolveResumeUrl() {

@@ -488,21 +488,34 @@ function normalizeStatusText(value) {
         .trim();
 }
 
+function normalizeStatusTokenKey(value) {
+    return normalizeStatusText(value)
+        .replace(/[\s-]+/g, '_')
+        .replace(/_+/g, '_')
+        .replace(/^_+|_+$/g, '');
+}
+
+function escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasStatusToken(status, tokens = []) {
+    const normalized = normalizeStatusTokenKey(status);
+    if (!normalized) return false;
+    return tokens.some((token) => {
+        const clean = normalizeStatusTokenKey(token);
+        if (!clean) return false;
+        return new RegExp(`(?:^|_)${escapeRegExp(clean)}(?:$|_)`).test(normalized);
+    });
+}
+
 function isPaidFromStatus(status) {
-    const s = normalizeStatusText(status);
-    if (!s) return false;
-    if (s.includes('aguardando') || s.includes('waiting') || s.includes('pending')) return false;
-    if (s.includes('refund') || s.includes('estorno')) return false;
-    if (s.includes('cancel') || s.includes('failed') || s.includes('recus')) return false;
-    return (
-        s.includes('paid') ||
-        s.includes('pago') ||
-        s.includes('authoriz') ||
-        s.includes('approved') ||
-        s.includes('aprovad') ||
-        s.includes('completed') ||
-        s.includes('confirm')
-    );
+    if (!normalizeStatusTokenKey(status)) return false;
+    if (hasStatusToken(status, ['unpaid', 'not_paid', 'nao_pago', 'nao_aprovado', 'unauthorized', 'unconfirmed'])) return false;
+    if (hasStatusToken(status, ['aguardando', 'waiting', 'pending', 'processing', 'created', 'generated', 'open'])) return false;
+    if (hasStatusToken(status, ['refund', 'refunded', 'estorno', 'reembolsado'])) return false;
+    if (hasStatusToken(status, ['cancel', 'cancelled', 'canceled', 'failed', 'failure', 'refused', 'recusado', 'declined', 'rejected', 'expired', 'expirado', 'chargeback', 'chargedback'])) return false;
+    return hasStatusToken(status, ['paid', 'pago', 'authorized', 'approved', 'aprovado', 'completed', 'confirmado', 'confirmed', 'concluido', 'concluida', 'success', 'successful']);
 }
 
 function isRefundedFromStatus(status) {

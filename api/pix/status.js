@@ -127,6 +127,20 @@ function normalizeStatus(value) {
         .replace(/-+/g, '_');
 }
 
+function escapeRegExp(value) {
+    return String(value || '').replace(/[.*+?^${}()|[\]\\]/g, '\\$&');
+}
+
+function hasStatusToken(status, tokens = []) {
+    const normalized = normalizeStatus(status);
+    if (!normalized) return false;
+    return tokens.some((token) => {
+        const clean = normalizeStatus(token);
+        if (!clean) return false;
+        return new RegExp(`(?:^|_)${escapeRegExp(clean)}(?:$|_)`).test(normalized);
+    });
+}
+
 function normalizeMoneyToBrl(value) {
     if (value === undefined || value === null || value === '') return 0;
     const raw = String(value).trim();
@@ -330,9 +344,11 @@ function mapGatewayStatusToFrontend(gateway, statusRaw) {
         return mapUtmifyStatusToFrontend(mapAtomopayStatusToUtmify(statusRaw));
     }
     const normalized = normalizeStatus(statusRaw);
-    if (/paid|approved|confirm|complete|success/.test(normalized)) return 'paid';
-    if (/refund/.test(normalized)) return 'refunded';
-    if (/refus|fail|cancel|expired|chargeback|chargedback/.test(normalized)) return 'refused';
+    if (!normalized) return 'waiting_payment';
+    if (hasStatusToken(normalized, ['unpaid', 'not_paid', 'nao_pago', 'nao_aprovado', 'unauthorized', 'unconfirmed'])) return 'waiting_payment';
+    if (hasStatusToken(normalized, ['refund', 'refunded', 'estorno', 'reembolsado'])) return 'refunded';
+    if (hasStatusToken(normalized, ['refused', 'recusado', 'failed', 'failure', 'cancel', 'cancelled', 'canceled', 'expired', 'expirado', 'chargeback', 'chargedback', 'declined', 'rejected'])) return 'refused';
+    if (hasStatusToken(normalized, ['paid', 'pago', 'authorized', 'approved', 'aprovado', 'confirmed', 'confirmado', 'completed', 'concluido', 'concluida', 'success', 'successful'])) return 'paid';
     return 'waiting_payment';
 }
 
