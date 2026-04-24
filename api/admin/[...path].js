@@ -1522,6 +1522,19 @@ function summarizeLeadPaymentItem(item = {}) {
     return '';
 }
 
+function resolveLeadDisplayAmount(paymentItems = [], currentAmount = null) {
+    const items = Array.isArray(paymentItems) ? paymentItems : [];
+    const paidTotal = items.reduce((sum, item) => {
+        if (String(item?.status || '').trim().toLowerCase() !== 'paid') return sum;
+        const amount = Number(item?.amount);
+        return Number.isFinite(amount) && amount > 0 ? sum + amount : sum;
+    }, 0);
+    if (paidTotal > 0) return Number(paidTotal.toFixed(2));
+
+    const current = Number(currentAmount);
+    return Number.isFinite(current) ? Number(current.toFixed(2)) : null;
+}
+
 function normalizeGatewaySalesFilter(value = '') {
     const normalized = String(value || '').trim().toLowerCase();
     if (normalized === 'ghostspay') return 'ghostspay';
@@ -1710,6 +1723,7 @@ function mapLeadReadable(row) {
         .map(summarizeLeadPaymentItem)
         .filter(Boolean)
         .join(' | ');
+    const displayAmount = resolveLeadDisplayAmount(paymentItems, currentAmountValue);
     const isUpsell = Boolean(
         payload?.upsell?.enabled === true ||
         String(row?.shipping_id || '').trim().toLowerCase() === 'expresso_1dia' ||
@@ -1784,7 +1798,7 @@ function mapLeadReadable(row) {
         seguro_bag: bump?.selected ? 'sim' : 'nao',
         valor_seguro: bump?.price ?? null,
         pix_txid: currentTxid || '-',
-        valor_total: currentAmountValue,
+        valor_total: displayAmount,
         is_upsell: isUpsell,
         gateway,
         gateway_label: gatewayLabel(gateway),
@@ -1822,7 +1836,7 @@ function mapLeadReadable(row) {
                 statusLabel: chargeState.label,
                 tone: chargeState.tone,
                 txid: currentTxid || '',
-                amount: currentAmountValue
+                amount: displayAmount
             },
             payments: paymentItems,
             paymentSummary,
