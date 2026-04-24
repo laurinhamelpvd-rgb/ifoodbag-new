@@ -1378,6 +1378,21 @@ function resolveLeadChargeState(row, payload) {
 }
 
 function resolveLeadCurrentStageInfo(row, payload = {}) {
+    const hasPix = Boolean(resolveLeadCurrentPixTxid(row, payload));
+    const lastEvent = String(row?.last_event || payload?.event || '').trim().toLowerCase();
+    if (hasPix && (lastEvent.startsWith('pix_') || lastEvent.startsWith('upsell_pix_'))) {
+        const pixStage = String(row?.stage || payload?.stage || 'pix').trim() || 'pix';
+        const page = normalizeLeadStagePage(pixStage);
+        const meta = describeLeadPage(page);
+        return {
+            key: normalizeLeadJourneyToken(pixStage || page),
+            page: page || '-',
+            raw: pixStage || '-',
+            label: meta?.label || '-',
+            description: meta?.description || 'Pagina registrada'
+        };
+    }
+
     const rawStage = String(
         pick(
             payload?.page,
