@@ -2568,6 +2568,48 @@ function leadMatchesExportSegment(row, payload, segmentKey) {
     return resolveLeadExportBucket(row, payload).key === segmentKey;
 }
 
+function sanitizeLeadSearchValue(value = '') {
+    return String(value || '')
+        .trim()
+        .replace(/[%*(),]/g, ' ')
+        .replace(/\s+/g, ' ')
+        .trim();
+}
+
+function buildLeadSearchOrFilter(query = '') {
+    const text = sanitizeLeadSearchValue(query);
+    const digits = String(query || '').replace(/\D/g, '');
+    const filters = [];
+    const textColumns = [
+        'name',
+        'email',
+        'phone',
+        'cpf',
+        'session_id',
+        'pix_txid',
+        'shipping_name',
+        'stage',
+        'utm_source',
+        'utm_campaign',
+        'utm_term',
+        'utm_content'
+    ];
+
+    if (text) {
+        textColumns.forEach((column) => {
+            filters.push(`${column}.ilike.*${text}*`);
+        });
+    }
+
+    if (digits && digits !== text) {
+        ['phone', 'cpf', 'pix_txid'].forEach((column) => {
+            filters.push(`${column}.ilike.*${digits}*`);
+        });
+    }
+
+    return filters.length ? `(${filters.join(',')})` : '';
+}
+
 function applyLeadFiltersToUrl(url, { range = null, query = '', limit = 50, offset = 0, select = LEADS_SELECT_FIELDS } = {}) {
     url.searchParams.set('select', select);
     url.searchParams.set('order', 'updated_at.desc');
@@ -2578,11 +2620,8 @@ function applyLeadFiltersToUrl(url, { range = null, query = '', limit = 50, offs
     if (range?.toIso) url.searchParams.append('updated_at', `lte.${range.toIso}`);
 
     if (query) {
-        const ilike = `%${String(query).replace(/%/g, '')}%`;
-        url.searchParams.set(
-            'or',
-            `name.ilike.${ilike},email.ilike.${ilike},phone.ilike.${ilike},cpf.ilike.${ilike},session_id.ilike.${ilike},pix_txid.ilike.${ilike},shipping_name.ilike.${ilike},stage.ilike.${ilike},utm_source.ilike.${ilike},utm_campaign.ilike.${ilike},utm_term.ilike.${ilike},utm_content.ilike.${ilike}`
-        );
+        const searchFilter = buildLeadSearchOrFilter(query);
+        if (searchFilter) url.searchParams.set('or', searchFilter);
     }
 }
 
@@ -3095,11 +3134,8 @@ async function getLeads(req, res) {
         if (range.fromIso) u.searchParams.append('updated_at', `gte.${range.fromIso}`);
         if (range.toIso) u.searchParams.append('updated_at', `lte.${range.toIso}`);
         if (query) {
-            const ilike = `%${query.replace(/%/g, '')}%`;
-            u.searchParams.set(
-                'or',
-                `name.ilike.${ilike},email.ilike.${ilike},phone.ilike.${ilike},cpf.ilike.${ilike},session_id.ilike.${ilike},pix_txid.ilike.${ilike},shipping_name.ilike.${ilike},stage.ilike.${ilike},utm_source.ilike.${ilike},utm_campaign.ilike.${ilike},utm_term.ilike.${ilike},utm_content.ilike.${ilike}`
-            );
+            const searchFilter = buildLeadSearchOrFilter(query);
+            if (searchFilter) u.searchParams.set('or', searchFilter);
         }
 
         const r = await fetchFn(u.toString(), {
