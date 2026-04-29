@@ -438,6 +438,21 @@ function parseLeadsDateRange(query = {}) {
     };
 }
 
+function gatewaySaleMatchesDateRange(entry = {}, range = {}) {
+    if (!range?.hasRange) return true;
+
+    const paidIso = toIsoDate(entry?.paidAt || entry?.updatedAt || entry?.createdAt);
+    const paidTs = paidIso ? Date.parse(paidIso) : 0;
+    if (!paidTs) return false;
+
+    const fromTs = range?.fromIso ? Date.parse(range.fromIso) : 0;
+    const toTs = range?.toIso ? Date.parse(range.toIso) : 0;
+
+    if (fromTs && paidTs < fromTs) return false;
+    if (toTs && paidTs > toTs) return false;
+    return true;
+}
+
 function toIsoDate(value) {
     if (!value && value !== 0) return null;
     if (value instanceof Date && !Number.isNaN(value.getTime())) return value.toISOString();
@@ -3808,6 +3823,7 @@ async function getGatewaySales(req, res) {
     (Array.isArray(result.rows) ? result.rows : []).forEach((row) => {
         const sales = extractGatewaySalesEntries(row);
         sales.forEach((entry) => {
+            if (!gatewaySaleMatchesDateRange(entry, range)) return;
             allEntries.push(entry);
             const bucket = summaryMap.get(entry.gateway);
             if (!bucket) return;

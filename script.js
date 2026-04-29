@@ -6138,25 +6138,41 @@ function initAdmin() {
     const SIMPLE_DATE_RE = /^\d{4}-\d{2}-\d{2}$/;
     const toUtcDateInput = (dateObj) => {
         if (!(dateObj instanceof Date) || Number.isNaN(dateObj.getTime())) return '';
-        return `${dateObj.getUTCFullYear()}-${pad2(dateObj.getUTCMonth() + 1)}-${pad2(dateObj.getUTCDate())}`;
+        return `${dateObj.getFullYear()}-${pad2(dateObj.getMonth() + 1)}-${pad2(dateObj.getDate())}`;
     };
     const parseDateInputUtc = (value) => {
         const raw = String(value || '').trim();
         if (!SIMPLE_DATE_RE.test(raw)) return null;
-        const date = new Date(`${raw}T00:00:00.000Z`);
+        const [year, month, day] = raw.split('-').map(Number);
+        const date = new Date(year, month - 1, day, 0, 0, 0, 0);
         if (Number.isNaN(date.getTime())) return null;
         return date;
     };
     const shiftDateInput = (dateInput, days) => {
         const base = parseDateInputUtc(dateInput);
         if (!base) return '';
-        base.setUTCDate(base.getUTCDate() + Number(days || 0));
+        base.setDate(base.getDate() + Number(days || 0));
         return toUtcDateInput(base);
     };
     const formatDateInputLabel = (dateInput) => {
         const date = parseDateInputUtc(dateInput);
         if (!date) return '-';
-        return date.toLocaleDateString('pt-BR', { timeZone: 'UTC' });
+        return date.toLocaleDateString('pt-BR');
+    };
+    const buildDateInputLocalExactRange = (fromInput, toInput) => {
+        const buildLocalBoundary = (value, endOfDay = false) => {
+            const raw = String(value || '').trim();
+            if (!SIMPLE_DATE_RE.test(raw)) return '';
+            const [year, month, day] = raw.split('-').map(Number);
+            const date = endOfDay
+                ? new Date(year, month - 1, day, 23, 59, 59, 999)
+                : new Date(year, month - 1, day, 0, 0, 0, 0);
+            return Number.isNaN(date.getTime()) ? '' : date.toISOString();
+        };
+        return {
+            fromIsoExact: buildLocalBoundary(fromInput, false),
+            toIsoExact: buildLocalBoundary(toInput || fromInput, true)
+        };
     };
 
     const buildPresetRange = (preset) => {
@@ -6176,7 +6192,7 @@ function initAdmin() {
         }
         if (preset === 'thisMonth') {
             const now = new Date();
-            const from = `${now.getUTCFullYear()}-${pad2(now.getUTCMonth() + 1)}-01`;
+            const from = `${now.getFullYear()}-${pad2(now.getMonth() + 1)}-01`;
             return { preset: 'thisMonth', from, to: today };
         }
         if (preset === 'custom') {
@@ -6217,16 +6233,16 @@ function initAdmin() {
         const from = String(range.from || '').trim();
         const to = String(range.to || '').trim();
         if (from && to && from === to) {
-            return `Periodo: ${formatDateInputLabel(from)} (UTC)`;
+            return `Periodo: ${formatDateInputLabel(from)}`;
         }
         if (from && to) {
-            return `Periodo: ${formatDateInputLabel(from)} ate ${formatDateInputLabel(to)} (UTC)`;
+            return `Periodo: ${formatDateInputLabel(from)} ate ${formatDateInputLabel(to)}`;
         }
         if (from) {
-            return `Periodo: desde ${formatDateInputLabel(from)} (UTC)`;
+            return `Periodo: desde ${formatDateInputLabel(from)}`;
         }
         if (to) {
-            return `Periodo: ate ${formatDateInputLabel(to)} (UTC)`;
+            return `Periodo: ate ${formatDateInputLabel(to)}`;
         }
         return 'Periodo: personalizado';
     };
@@ -7003,8 +7019,11 @@ function initAdmin() {
 
         const url = new URL('/api/admin/gateway-sales', window.location.origin);
         const activeRange = getActiveOverviewRange();
-        if (activeRange.from) url.searchParams.set('from', activeRange.from);
-        if (activeRange.to) url.searchParams.set('to', activeRange.to);
+        const exactRange = buildDateInputLocalExactRange(activeRange.from, activeRange.to);
+        if (exactRange.fromIsoExact) url.searchParams.set('fromIsoExact', exactRange.fromIsoExact);
+        else if (activeRange.from) url.searchParams.set('from', activeRange.from);
+        if (exactRange.toIsoExact) url.searchParams.set('toIsoExact', exactRange.toIsoExact);
+        else if (activeRange.to) url.searchParams.set('to', activeRange.to);
         if (gatewaySalesState.selectedGateway) url.searchParams.set('gateway', gatewaySalesState.selectedGateway);
         if (gatewaySalesState.query) url.searchParams.set('q', gatewaySalesState.query);
         url.searchParams.set('max', '80000');
