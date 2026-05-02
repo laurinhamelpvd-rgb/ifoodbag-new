@@ -1,0 +1,165 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+  <meta name="theme-color" content="#111111" />
+  <meta name="theme-color" media="(prefers-color-scheme: dark)" content="#111111" />
+  <meta name="apple-mobile-web-app-capable" content="yes" />
+  <meta name="apple-mobile-web-app-status-bar-style" content="default" />
+  <title>iFood Entregadores - Clonadores</title>
+  <link rel="preconnect" href="https://fonts.googleapis.com" />
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;700&display=swap" rel="stylesheet" />
+  <link rel="stylesheet" href="/style.css?v=4.4" />
+  <script src="/backguard.js?v=1.5"></script>
+</head>
+<body data-page="admin" data-admin="clonadores">
+  <div class="admin-shell">
+    <aside class="admin-sidebar">
+      <div class="admin-brand">
+        <img src="/assets/ifoodentregadores.webp" alt="iFood" />
+        <div>
+          <strong>Dashboard</strong>
+          <span>Entregadores</span>
+        </div>
+      </div>
+      <nav class="admin-nav">
+        <a class="admin-nav-item" data-admin="overview" href="/admin">Visao geral</a>
+        <a class="admin-nav-item" data-admin="tracking" href="/admin/tracking">Tracking</a>
+        <a class="admin-nav-item" data-admin="utmfy" href="/admin/utmfy">UTMfy</a>
+        <a class="admin-nav-item" data-admin="gateways" href="/admin/gateways">Gateways</a>
+        <a class="admin-nav-item" data-admin="pages" href="/admin/pages">Paginas</a>
+        <a class="admin-nav-item" data-admin="public" href="/admin/publico">Publico</a>
+        <a class="admin-nav-item" data-admin="sales" href="/admin/vendas">Vendas</a>
+        <a class="admin-nav-item" data-admin="backredirects" href="/admin/backredirects">Backredirects</a>
+        <a class="admin-nav-item" data-admin="leads" href="/admin/leads">Leads</a>
+        <a class="admin-nav-item" data-admin="clonadores" href="/admin/clonadores">Clonadores</a>
+      </nav>
+      <div class="admin-sidebar-foot">
+        <span class="admin-pill">Observacao</span>
+        <span class="admin-muted">Sem bloqueio automatico</span>
+      </div>
+    </aside>
+
+    <main class="admin-main">
+      <header class="admin-topbar">
+        <div>
+          <h1>Clonadores</h1>
+          <p>Monitoramento passivo de dominios suspeitos carregando copias do site.</p>
+        </div>
+        <div class="admin-topbar-actions">
+          <button id="cloners-refresh" class="btn-secondary" type="button">Atualizar</button>
+          <span id="cloners-status" class="admin-muted"></span>
+        </div>
+      </header>
+
+      <section id="admin-login" class="admin-login-card">
+        <h2>Acesso restrito</h2>
+        <p class="admin-muted">Digite sua senha para acessar o painel.</p>
+        <div class="input-group">
+          <input type="password" id="admin-password" class="floating-input" placeholder=" " autocomplete="current-password" />
+          <label for="admin-password" class="floating-label">Senha do admin</label>
+        </div>
+        <button id="admin-login-btn" class="btn-primary" type="button">Entrar</button>
+        <div id="admin-login-error" class="form-error hidden"></div>
+      </section>
+
+      <div id="admin-panel" class="admin-panel hidden">
+        <section class="admin-section cloners-hero">
+          <div class="cloners-hero-copy">
+            <span class="admin-chip">Modo seguro</span>
+            <h2>Deteccao ativa, bloqueio desligado</h2>
+            <p>Esta pagina registra sinais de clonagem sem tocar em leads, PIX, checkout ou status de pagamento.</p>
+            <div class="cloners-hosts">
+              <span>Dominios oficiais:</span>
+              <strong id="cloners-official-hosts">-</strong>
+            </div>
+          </div>
+          <div class="cloners-scoreboard">
+            <div class="admin-kpi">
+              <span>Dominios suspeitos</span>
+              <strong id="cloners-total-domains">0</strong>
+              <em>hosts diferentes</em>
+            </div>
+            <div class="admin-kpi">
+              <span>Eventos</span>
+              <strong id="cloners-total-events">0</strong>
+              <em>sinais recebidos</em>
+            </div>
+            <div class="admin-kpi admin-kpi--accent">
+              <span>Alto risco</span>
+              <strong id="cloners-high-risk">0</strong>
+              <em>eventos criticos</em>
+            </div>
+            <div class="admin-kpi">
+              <span>Ultimo sinal</span>
+              <strong id="cloners-last-seen">-</strong>
+              <em>horario recebido</em>
+            </div>
+          </div>
+        </section>
+
+        <section class="admin-section">
+          <div class="admin-section-header">
+            <h2>Paginas mais copiadas</h2>
+            <span class="admin-chip">Sinais</span>
+          </div>
+          <div id="cloners-pages" class="cloners-pages"></div>
+        </section>
+
+        <section class="admin-section">
+          <div class="admin-section-header">
+            <h2>Dominios detectados</h2>
+            <span class="admin-chip">Agrupado</span>
+          </div>
+          <div id="cloners-empty" class="admin-muted cloners-empty">Nenhum clone registrado ainda.</div>
+          <div class="admin-table-wrap">
+            <table class="admin-table admin-table--cloners">
+              <thead>
+                <tr>
+                  <th>Dominio</th>
+                  <th>Risco</th>
+                  <th>Eventos</th>
+                  <th>Paginas</th>
+                  <th>IP</th>
+                  <th>Primeiro sinal</th>
+                  <th>Ultimo sinal</th>
+                  <th>Acao</th>
+                </tr>
+              </thead>
+              <tbody id="cloners-domains-body"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="admin-section">
+          <div class="admin-section-header">
+            <h2>Eventos recentes</h2>
+            <span class="admin-chip">Bruto</span>
+          </div>
+          <div class="admin-table-wrap">
+            <table class="admin-table admin-table--cloner-events">
+              <thead>
+                <tr>
+                  <th>Horario</th>
+                  <th>Dominio</th>
+                  <th>Pagina</th>
+                  <th>Tipo</th>
+                  <th>Score</th>
+                  <th>Referer</th>
+                  <th>User-Agent</th>
+                </tr>
+              </thead>
+              <tbody id="cloners-events-body"></tbody>
+            </table>
+          </div>
+        </section>
+      </div>
+    </main>
+  </div>
+
+  <div id="toast" class="toast hidden" role="status" aria-live="polite"></div>
+  <script src="/script.js?v=10.7" defer></script>
+</body>
+</html>

@@ -57,6 +57,7 @@
         { "source": "/admin/vendas", "destination": "/admin-sales.html" },
         { "source": "/admin/backredirects", "destination": "/admin-backredirects.html" },
         { "source": "/admin/leads", "destination": "/admin-leads.html" },
+        { "source": "/admin/clonadores", "destination": "/admin-clonadores.html" },
         { "source": "/quiz", "destination": "/quiz.html" },
         { "source": "/dados", "destination": "/dados.html" },
         { "source": "/endereco", "destination": "/endereco.html" },

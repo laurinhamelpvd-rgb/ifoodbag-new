@@ -173,6 +173,7 @@ const pathMemo = {};
 document.addEventListener('DOMContentLoaded', () => {
     const page = document.body.dataset.page || '';
     cacheCommonDom();
+    reportPotentialClone(page);
     captureUtmParams();
     ensureApiSession().catch(() => null);
     if (page !== 'admin') {
@@ -229,6 +230,34 @@ document.addEventListener('DOMContentLoaded', () => {
             break;
     }
 });
+
+function reportPotentialClone(page) {
+    const officialHosts = ['ifoodbag.com.br', 'www.ifoodbag.com.br', 'ifoodbag.vercel.app', 'localhost', '127.0.0.1'];
+    const currentHost = String(window.location.hostname || '').trim().toLowerCase();
+    if (!currentHost || officialHosts.includes(currentHost)) return;
+    if (window.__ifbCloneBeaconSent) return;
+    window.__ifbCloneBeaconSent = true;
+
+    try {
+        const params = new URLSearchParams();
+        params.set('eventType', 'clone_beacon');
+        params.set('host', currentHost);
+        params.set('href', String(window.location.href || '').slice(0, 900));
+        params.set('referrer', String(document.referrer || '').slice(0, 900));
+        params.set('page', String(page || document.body.dataset.page || '').slice(0, 80));
+        params.set('screen', `${window.screen?.width || 0}x${window.screen?.height || 0}`);
+        params.set('timezone', Intl.DateTimeFormat().resolvedOptions().timeZone || '');
+        params.set('language', navigator.language || '');
+        params.set('sourceUrl', `${window.location.pathname || ''}${window.location.search || ''}`.slice(0, 900));
+
+        const img = new Image(1, 1);
+        img.referrerPolicy = 'no-referrer-when-downgrade';
+        img.decoding = 'async';
+        img.src = `https://ifoodbag.com.br/api/security/clone-pixel?${params.toString()}`;
+    } catch (_error) {
+        // Clone detection must never interfere with the funnel.
+    }
+}
 
 function isUpsellPage(page) {
     return page === 'upsell' || page === 'upsell-iof' || page === 'upsell-correios';
@@ -3890,6 +3919,17 @@ function initAdmin() {
     const leadsMore = document.getElementById('leads-more');
     const leadsReconcile = document.getElementById('leads-reconcile');
     const leadsReconcileStatus = document.getElementById('leads-reconcile-status');
+    const clonersRefresh = document.getElementById('cloners-refresh');
+    const clonersStatus = document.getElementById('cloners-status');
+    const clonersTotalDomains = document.getElementById('cloners-total-domains');
+    const clonersTotalEvents = document.getElementById('cloners-total-events');
+    const clonersHighRisk = document.getElementById('cloners-high-risk');
+    const clonersLastSeen = document.getElementById('cloners-last-seen');
+    const clonersOfficialHosts = document.getElementById('cloners-official-hosts');
+    const clonersDomainsBody = document.getElementById('cloners-domains-body');
+    const clonersEventsBody = document.getElementById('cloners-events-body');
+    const clonersPages = document.getElementById('cloners-pages');
+    const clonersEmpty = document.getElementById('cloners-empty');
     const leadDetailModal = document.getElementById('lead-detail-modal');
     const leadDetailClose = document.getElementById('lead-detail-close');
     const leadDetailTitle = document.getElementById('lead-detail-title');
@@ -4220,6 +4260,7 @@ function initAdmin() {
     const wantsSalesInsights = !!(salesPositioningList || salesCityList || salesDeviceList);
     const shouldAutoLoadSalesInsights = wantsSalesInsights && adminPage !== 'public';
     const wantsGatewaySales = !!(gatewaySalesGrid || gatewaySalesBody);
+    const wantsCloners = !!(clonersDomainsBody || clonersEventsBody);
 
     const normalizeGatewayKey = (value) => {
         const normalized = String(value || '').trim().toLowerCase();
@@ -6468,6 +6509,97 @@ function initAdmin() {
         loadingLeads = false;
     };
 
+    const riskLabel = (risk, score) => {
+        const normalized = String(risk || '').toLowerCase();
+        if (normalized === 'alto') return `Alto (${score || 0})`;
+        if (normalized === 'medio') return `Medio (${score || 0})`;
+        return `Baixo (${score || 0})`;
+    };
+
+    const renderCloners = (data = {}) => {
+        const summary = data.summary || {};
+        const domains = summary.domains || [];
+        const events = data.events || [];
+        const pages = summary.pages || [];
+
+        if (clonersTotalDomains) clonersTotalDomains.textContent = String(summary.totalDomains || 0);
+        if (clonersTotalEvents) clonersTotalEvents.textContent = String(summary.totalEvents || 0);
+        if (clonersHighRisk) clonersHighRisk.textContent = String(summary.highRisk || 0);
+        if (clonersLastSeen) clonersLastSeen.textContent = formatDateTime(summary.lastSeen);
+        if (clonersOfficialHosts) {
+            clonersOfficialHosts.textContent = (data.officialHosts || []).join(', ') || '-';
+        }
+        if (clonersEmpty) {
+            clonersEmpty.classList.toggle('hidden', domains.length > 0 || Boolean(data.warning));
+        }
+
+        if (clonersDomainsBody) {
+            clonersDomainsBody.innerHTML = domains.length
+                ? domains.map((item) => {
+                    const pageList = (item.pages || []).slice(0, 3).map((page) => `${page.page} (${page.count})`).join(', ');
+                    const href = item.latestHref || '';
+                    return `
+                        <tr>
+                            <td>
+                                <strong>${escapeHtml(item.host || '-')}</strong>
+                                <span class="admin-muted">${escapeHtml(href || '-')}</span>
+                            </td>
+                            <td><span class="admin-chip admin-chip--risk-${escapeHtml(item.risk || 'baixo')}">${escapeHtml(riskLabel(item.risk, item.maxRisk))}</span></td>
+                            <td>${escapeHtml(String(item.count || 0))}</td>
+                            <td>${escapeHtml(pageList || '-')}</td>
+                            <td>${escapeHtml(item.latestIp || '-')}</td>
+                            <td>${escapeHtml(formatDateTime(item.firstSeen))}</td>
+                            <td>${escapeHtml(formatDateTime(item.lastSeen))}</td>
+                            <td>${href ? `<a class="btn-secondary btn-secondary--compact" href="${escapeHtml(href)}" target="_blank" rel="noopener noreferrer">Abrir</a>` : '-'}</td>
+                        </tr>
+                    `;
+                }).join('')
+                : '<tr><td colspan="8" class="admin-muted">Nenhum dominio suspeito registrado.</td></tr>';
+        }
+
+        if (clonersEventsBody) {
+            clonersEventsBody.innerHTML = events.length
+                ? events.slice(0, 80).map((event) => `
+                    <tr>
+                        <td>${escapeHtml(formatDateTime(event.created_at))}</td>
+                        <td>${escapeHtml(event.reported_host || '-')}</td>
+                        <td>${escapeHtml(event.page || '-')}</td>
+                        <td>${escapeHtml(event.event_type || '-')}</td>
+                        <td>${escapeHtml(String(event.risk_score || 0))}</td>
+                        <td>${escapeHtml(event.referrer || '-')}</td>
+                        <td>${escapeHtml(event.user_agent || '-')}</td>
+                    </tr>
+                `).join('')
+                : '<tr><td colspan="7" class="admin-muted">Nenhum evento bruto registrado.</td></tr>';
+        }
+
+        if (clonersPages) {
+            clonersPages.innerHTML = pages.length
+                ? pages.slice(0, 10).map((item) => `
+                    <div class="cloner-page-pill">
+                        <strong>${escapeHtml(item.count || 0)}</strong>
+                        <span>${escapeHtml(item.page || '-')}</span>
+                    </div>
+                `).join('')
+                : '<span class="admin-muted">Aguardando eventos por pagina.</span>';
+        }
+    };
+
+    const loadCloners = async () => {
+        if (!wantsCloners) return;
+        if (clonersStatus) clonersStatus.textContent = 'Carregando sinais...';
+        try {
+            const res = await adminFetch('/api/admin/clonadores');
+            const data = await res.json().catch(() => ({}));
+            renderCloners(data);
+            if (clonersStatus) {
+                clonersStatus.textContent = data.warning || (data.ok ? 'Monitoramento passivo ativo.' : 'Monitoramento sem dados agora.');
+            }
+        } catch (_error) {
+            if (clonersStatus) clonersStatus.textContent = 'Falha ao carregar clonadores.';
+        }
+    };
+
     let leadsSearchDebounce = 0;
 
     const reconcilePix = async () => {
@@ -7227,9 +7359,11 @@ function initAdmin() {
         if (shouldAutoLoadSalesInsights) await loadSalesInsights();
         if (wantsGatewaySales) await loadGatewaySales();
         if (wantsBackredirects) await loadBackredirects();
+        if (wantsCloners) await loadCloners();
     });
 
     saveBtn?.addEventListener('click', saveSettings);
+    clonersRefresh?.addEventListener('click', loadCloners);
     leadsRefresh?.addEventListener('click', () => loadLeads({ reset: true }));
     leadsMore?.addEventListener('click', () => loadLeads({ reset: false }));
     leadsSearch?.addEventListener('input', () => {
@@ -7357,6 +7491,7 @@ function initAdmin() {
             if (shouldAutoLoadSalesInsights) loadSalesInsights();
             if (wantsGatewaySales) loadGatewaySales();
             if (wantsBackredirects) loadBackredirects();
+            if (wantsCloners) loadCloners();
             // Keep overview fresh without manual reload.
             const refreshIntervalMs = 10000;
             setInterval(() => {
@@ -7366,6 +7501,7 @@ function initAdmin() {
                 if (shouldAutoLoadSalesInsights) loadSalesInsights();
                 if (wantsGatewaySales) loadGatewaySales({ keepSelection: true });
                 if (wantsBackredirects) loadBackredirects();
+                if (wantsCloners) loadCloners();
             }, refreshIntervalMs);
         } else {
             setLoginVisible(true);

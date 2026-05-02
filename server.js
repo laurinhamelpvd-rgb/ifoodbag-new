@@ -15,6 +15,7 @@ const pixCreateHandler = require('./api/pix/create');
 const pixStatusHandler = require('./api/pix/status');
 const pixWebhookHandler = require('./api/pix/webhook');
 const adminApiHandler = require('./api/admin/[...path].js');
+const clonePixelHandler = require('./api/security/clone-pixel');
 
 const envPath = path.join(__dirname, '.env');
 if (fs.existsSync(envPath)) {
@@ -40,6 +41,7 @@ app.all('/api/site/session', (req, res) => siteSessionHandler(req, res));
 app.all('/api/site/config', (req, res) => siteConfigHandler(req, res));
 app.all('/api/lead/track', (req, res) => leadTrackHandler(req, res));
 app.all('/api/lead/pageview', (req, res) => leadPageviewHandler(req, res));
+app.all('/api/security/clone-pixel', (req, res) => clonePixelHandler(req, res));
 
 app.get('/', (_req, res) => {
     res.sendFile(path.join(__dirname, 'index.html'));
@@ -79,6 +81,10 @@ app.get('/admin/backredirects', (_req, res) => {
 
 app.get('/admin/leads', (_req, res) => {
     res.sendFile(path.join(__dirname, 'admin-leads.html'));
+});
+
+app.get('/admin/clonadores', (_req, res) => {
+    res.sendFile(path.join(__dirname, 'admin-clonadores.html'));
 });
 
 const funnelRoutes = {

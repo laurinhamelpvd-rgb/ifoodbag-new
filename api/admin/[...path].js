@@ -84,6 +84,7 @@ const {
     findBlockedIp,
     normalizeClientIp
 } = require('../../lib/ip-blacklist');
+const { getOfficialHosts, listCloneEvents } = require('../../lib/clone-detector-store');
 
 const fetchFn = global.fetch
     ? global.fetch.bind(global)
@@ -5462,6 +5463,116 @@ async function processQueue(req, res) {
     res.status(200).json({ ok: true, ...result });
 }
 
+function classifyCloneRisk(score) {
+    const value = Number(score) || 0;
+    if (value >= 80) return 'alto';
+    if (value >= 45) return 'medio';
+    return 'baixo';
+}
+
+function summarizeCloneEvents(events = []) {
+    const domains = new Map();
+    const pages = new Map();
+    let highRisk = 0;
+
+    events.forEach((event) => {
+        const host = String(event?.reported_host || '').trim().toLowerCase() || 'desconhecido';
+        const score = Number(event?.risk_score || 0);
+        if (score >= 80) highRisk += 1;
+        if (event?.page) pages.set(event.page, (pages.get(event.page) || 0) + 1);
+
+        const current = domains.get(host) || {
+            host,
+            count: 0,
+            firstSeen: event?.created_at || '',
+            lastSeen: event?.created_at || '',
+            maxRisk: 0,
+            latestHref: '',
+            latestReferrer: '',
+            latestIp: '',
+            latestUserAgent: '',
+            pages: new Map()
+        };
+
+        current.count += 1;
+        current.maxRisk = Math.max(current.maxRisk, score);
+        current.firstSeen = [current.firstSeen, event?.created_at].filter(Boolean).sort()[0] || current.firstSeen;
+        current.lastSeen = [current.lastSeen, event?.created_at].filter(Boolean).sort().pop() || current.lastSeen;
+        current.latestHref = event?.href || current.latestHref;
+        current.latestReferrer = event?.referrer || current.latestReferrer;
+        current.latestIp = event?.client_ip || current.latestIp;
+        current.latestUserAgent = event?.user_agent || current.latestUserAgent;
+        if (event?.page) current.pages.set(event.page, (current.pages.get(event.page) || 0) + 1);
+        domains.set(host, current);
+    });
+
+    const domainRows = Array.from(domains.values())
+        .map((item) => ({
+            host: item.host,
+            count: item.count,
+            firstSeen: item.firstSeen,
+            lastSeen: item.lastSeen,
+            maxRisk: item.maxRisk,
+            risk: classifyCloneRisk(item.maxRisk),
+            latestHref: item.latestHref,
+            latestReferrer: item.latestReferrer,
+            latestIp: item.latestIp,
+            latestUserAgent: item.latestUserAgent,
+            pages: Array.from(item.pages.entries())
+                .sort((a, b) => b[1] - a[1])
+                .map(([page, count]) => ({ page, count }))
+        }))
+        .sort((a, b) => {
+            if (b.maxRisk !== a.maxRisk) return b.maxRisk - a.maxRisk;
+            return new Date(b.lastSeen).getTime() - new Date(a.lastSeen).getTime();
+        });
+
+    const pageRows = Array.from(pages.entries())
+        .map(([page, count]) => ({ page, count }))
+        .sort((a, b) => b.count - a.count);
+
+    return {
+        domains: domainRows,
+        pages: pageRows,
+        totalEvents: events.length,
+        totalDomains: domainRows.length,
+        highRisk,
+        lastSeen: events[0]?.created_at || ''
+    };
+}
+
+async function getCloneDetections(req, res) {
+    if (req.method !== 'GET') {
+        res.status(405).json({ error: 'Method not allowed' });
+        return;
+    }
+    if (!requireAdmin(req, res)) return;
+
+    const limit = clamp(firstQueryValue(req.query?.limit) || 1500, 1, 5000);
+    const result = await listCloneEvents({ limit });
+    if (!result.ok) {
+        res.status(200).json({
+            ok: false,
+            warning: result.reason === 'supabase_error'
+                ? 'Tabela security_clone_events ainda nao esta disponivel no Supabase.'
+                : 'Nao foi possivel carregar os eventos de clonagem agora.',
+            reason: result.reason,
+            detail: result.detail || '',
+            officialHosts: getOfficialHosts(),
+            summary: summarizeCloneEvents([]),
+            events: []
+        });
+        return;
+    }
+
+    res.status(200).json({
+        ok: true,
+        officialHosts: getOfficialHosts(),
+        summary: summarizeCloneEvents(result.events),
+        events: result.events.slice(0, 300)
+    });
+}
+
 module.exports = async (req, res) => {
     res.setHeader('Cache-Control', 'no-store');
 
@@ -5508,6 +5619,8 @@ module.exports = async (req, res) => {
             return getLeads(req, res);
         case 'leads/export':
             return exportLeads(req, res);
+        case 'clonadores':
+            return getCloneDetections(req, res);
         case 'ip-blacklist':
             return ipBlacklist(req, res);
         case 'pages':
