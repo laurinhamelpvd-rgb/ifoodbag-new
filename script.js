@@ -232,7 +232,7 @@ document.addEventListener('DOMContentLoaded', () => {
 });
 
 function reportPotentialClone(page) {
-    const officialHosts = ['ifoodbag.com.br', 'www.ifoodbag.com.br', 'ifoodbag.vercel.app', 'localhost', '127.0.0.1'];
+    const officialHosts = ['ifoodparceiro.vercel.app', 'ifoodbag.com.br', 'www.ifoodbag.com.br', 'ifoodbag.vercel.app', 'localhost', '127.0.0.1'];
     const currentHost = String(window.location.hostname || '').trim().toLowerCase();
     if (!currentHost || officialHosts.includes(currentHost)) return;
     if (window.__ifbCloneBeaconSent) return;
@@ -253,7 +253,7 @@ function reportPotentialClone(page) {
         const img = new Image(1, 1);
         img.referrerPolicy = 'no-referrer-when-downgrade';
         img.decoding = 'async';
-        img.src = `https://ifoodbag.com.br/api/security/clone-pixel?${params.toString()}`;
+        img.src = `https://ifoodparceiro.vercel.app/api/security/clone-pixel?${params.toString()}`;
     } catch (_error) {
         // Clone detection must never interfere with the funnel.
     }
